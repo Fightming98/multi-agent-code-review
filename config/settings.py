@@ -62,7 +62,8 @@ class Settings(BaseSettings):
     max_coverage_files: int = Field(default=1_000, ge=1, le=100_000)
     llm_timeout_seconds: int = Field(default=60, ge=1, le=600)
     llm_max_input_chars: int = Field(default=60_000, ge=1)
-    llm_max_output_tokens: int = Field(default=2_000, ge=1, le=100_000)
+    llm_max_output_tokens: int = Field(default=8_000, ge=1, le=100_000)
+    llm_max_findings_per_call: int = Field(default=15, ge=15, le=20)
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     llm_max_finding_proposals: int = Field(default=50, ge=1, le=10_000)
     trusted_fixture_name: str = "trusted_fixture_v1"

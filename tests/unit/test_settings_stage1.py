@@ -34,7 +34,8 @@ def test_stage1_threshold_defaults_match_acceptance_document() -> None:
     assert settings.max_coverage_files == 1_000
     assert settings.llm_timeout_seconds == 60
     assert settings.llm_max_input_chars == 60_000
-    assert settings.llm_max_output_tokens == 2_000
+    assert settings.llm_max_output_tokens == 8_000
+    assert settings.llm_max_findings_per_call == 15
     assert settings.llm_temperature == 0.0
     assert settings.llm_max_finding_proposals == 50
     assert settings.trusted_fixture_name == "trusted_fixture_v1"
@@ -85,6 +86,10 @@ def test_blank_workspace_root_becomes_none() -> None:
         ("max_total_scan_size_mb", 0),
         ("git_clone_timeout_seconds", 0),
         ("llm_timeout_seconds", 0),
+        ("llm_max_output_tokens", 0),
+        ("llm_max_findings_per_call", 0),
+        ("llm_max_findings_per_call", 14),
+        ("llm_max_findings_per_call", 21),
         ("max_test_output_bytes", 1023),
         ("max_test_records", 0),
         ("max_coverage_files", 0),

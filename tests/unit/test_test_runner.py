@@ -9,7 +9,7 @@ from xml.sax.saxutils import escape
 
 import pytest
 
-from src.code_review.schemas.report import TestSummary as ContractTestSummary
+from code_review.schemas.report import TestSummary as ContractTestSummary
 from config.settings import Settings
 from src.code_review.tools.process_runner import ProcessResult, ProcessStatus
 from src.code_review.tools.test_runner import (
