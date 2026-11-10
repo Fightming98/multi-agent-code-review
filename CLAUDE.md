@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 仓库现状
 
-这是 **Multi-Agent Code Review System** 的阶段 0（工程初始化与需求冻结）成果，并已完成阶段 1 实施前评审与实施基线修订（2026-11-10）。阶段 0 已于 2026-11-09 通过正式验收，五份核心文档冻结为 v1.0；阶段 1 的裁定记录见 `实施决策.md`，基线补充见 `docs/acceptance.md` §4.7～§4.11。仓库仍**不含任何阶段 1 实现代码、Agent、LLM 调用、工作流或评审业务实现**。
+这是 **Multi-Agent Code Review System** 的阶段 0（工程初始化与需求冻结）成果，并已完成阶段 1 实施前评审与实施基线修订（2026-11-10）。阶段 0 已于 2026-11-09 通过正式验收，五份核心文档冻结为 v1.0；阶段 1 的裁定记录见 `Stage1实施前人工决策.md`，基线补充见 `docs/acceptance.md` §4.7～§4.11。仓库仍**不含任何阶段 1 实现代码、Agent、LLM 调用、工作流或评审业务实现**。
 
 - 已存在：`docs/*.md`（阶段 0 为 v1.0；阶段 1 基线修订后 `acceptance.md`、`architecture.md`、`requirements.md`、`workflow.md` 为 v1.1，`task_contracts.md` 仍为 v1.0）、`environment.yml`、`.env.example`、`.gitignore`、`README.md`、`config/settings.py`、`src/code_review/schemas/`、`tests/unit/`、`pytest.ini`
 - 阶段 0 交付：四个核心 Pydantic Schema 与 204 条单元测试，全部通过（0 failure / error / skip / xfail）
@@ -118,7 +118,7 @@ orchestration → graph → ReviewService → api / CLI / workers
 | `docs/acceptance.md` | AC-0-01…33、AC-1-01…15、TC-1-01…06、CK-1…7、可执行验收命令与阶段 1 阈值 |
 | `项目总框架与实施计划V2.0.md` | 总体规划基线（阶段 0–7） |
 | `阶段1_Prompt.md` | 阶段 1 执行提示词；§14 AC 映射已按 `acceptance.md` 修正 |
-| `实施决策.md` | 阶段 1 实施前裁定的权威记录（Q1～Q13） |
+| `Stage1实施前人工决策.md` | 阶段 1 实施前裁定的权威记录（Q1～Q13） |
 | `Prompt/阶段0_Prompt.md` | 阶段 0 的可执行任务边界与交付步骤 |
 | `Prompt/0.3阶段任务要求.md` | 阶段 0.3 Schema 重建与测试要求 |
 | `Prompt/0.4阶段任务要求.md` | 阶段 0.4 文档冲突修复、合同统一与冻结要求 |
@@ -160,4 +160,4 @@ orchestration → graph → ReviewService → api / CLI / workers
 - 提交前确认 `.env` 未被跟踪；不得提交密钥、token、主机路径或 `reports/` 下的本地报告。
 - 阶段 0 已完成；阶段 1 已获确认，但 Stage 1.1 尚未开始。按 Stage 1.1 → 1.7 逐步实施，每个子阶段先提供测试证据，经用户确认再继续。
 - 未经用户确认，不推进到下一子阶段，不增加依赖，不删除/重写规格文档。
-- 阶段 1 的裁定以 `实施决策.md` 为准；基线补充以 `docs/acceptance.md` §4.7～§4.11 与 `docs/architecture.md` §7.1.1/§8.1 为准。
+- 阶段 1 的裁定以 `Stage1实施前人工决策.md` 为准；基线补充以 `docs/acceptance.md` §4.7～§4.11 与 `docs/architecture.md` §7.1.1/§8.1 为准。
