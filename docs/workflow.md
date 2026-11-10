@@ -3,11 +3,11 @@
 | 项目 | 内容 |
 | --- | --- |
 | 项目名称 | Multi-Agent Code Review System |
-| 文档版本 | v1.0 |
+| 文档版本 | v1.1（阶段 1 实施基线修订） |
 | 适用范围 | Multi-Agent Code Review System 阶段 0～阶段 7 的工程实施基线 |
-| 当前阶段 | 阶段 0：工程初始化与需求冻结 |
-| 最后更新 | 2026-11-09 |
-| 状态 | 已冻结（Frozen） |
+| 当前阶段 | 阶段 1：单 Agent 工程基础（实施基线） |
+| 最后更新 | 2026-11-10 |
+| 状态 | 已冻结（Frozen）；阶段 1 澄清见 §8.7、§10、修订记录 |
 | 关联文档 | `requirements.md`、`architecture.md`、`task_contracts.md`、`acceptance.md` |
 
 > **阅读提示**：本文档描述从“用户提交 GitHub 仓库 URL”到“最终审查报告交付”的完整业务流程。各章与实现阶段的对应关系如下：
@@ -91,7 +91,7 @@ flowchart TD
 | 6 并行审查 | 四个专业 Agent | `AgentTask` | 四个 `AgentResult` | 见第 3、4 章 | 2 |
 | 7 结果汇合 | Manager / LangGraph | 四个 `AgentResult` | 结果集合 + 执行统计 | 允许部分失败 | 2 |
 | 8 核验与汇总 | Final Reviewer | 结果集合、代码快照 | `ReviewReport` | 见第 8 章 | 2 |
-| 9 报告生成 | Final Reviewer / 报告模块 | `ReviewReport` | `report.md`、`report.json` | Schema 校验失败则报告生成失败 | 1～2 |
+| 9 报告生成 | Final Reviewer / 报告模块 | `ReviewReport` | `report.md`、`report.json` | Schema 校验失败则报告生成失败；阶段 1 无 `ReviewReport`，`report.md` 由三份结构化数据渲染 | 1（`report.md`）；2 起（`report.json`） |
 | 10 结果交付 | 交付层 | 报告 | 文件 / PR 评论 / Dashboard | 评论发布带幂等键 | 1、7 |
 
 ### 1.4 职责边界回顾
@@ -150,7 +150,7 @@ sequenceDiagram
 
 #### 步骤 1～2：提交与接收
 
-- 阶段 1～3：用户通过 CLI 提交（主要验收入口）；FastAPI 的 `POST /api/reviews` 为可选演示入口，请求体示例：
+- 阶段 1～3：用户通过 CLI 提交（主要验收入口）；FastAPI 的 `POST /api/reviews` 为受控同步入口（阶段 1 必做最小实现，与 CLI 共用 `ReviewService`），请求体示例：
 
 ```json
 {
@@ -255,7 +255,7 @@ Manager 把结果集合与执行统计交给 Final Reviewer，**自己不生成�
 
 | 渠道 | 阶段 | 说明 |
 | --- | --- | --- |
-| `reports/<review_id>/` 目录 | 1 起 | `metadata.json`、`static_analysis.json`、`test_report.json`、`report.md`、`report.json` |
+| `reports/<review_id>/` 目录 | 1 起 | 阶段 1：`metadata.json`、`static_analysis.json`、`test_report.json`、`report.md`；阶段 2 起增加 `report.json` |
 | API / CLI 输出 | 1 起 | 返回报告路径与摘要 |
 | GitHub PR 评论 | 7 | 受控的发布模块，带幂等键 |
 | Streamlit Dashboard | 7 | 展示执行过程与报告 |
@@ -733,6 +733,8 @@ reports/
         report.md              # 由 ReviewReport 渲染的 Markdown 报告
 ```
 
+> **阶段 1 补充（2026-11-10）**：阶段 1 只生成 `metadata.json`、`static_analysis.json`、`test_report.json`、`report.md` 四件；`report.md` 由三份结构化数据渲染，不依赖 `ReviewReport`。`report.json` 自阶段 2 起由 Final Reviewer 生成。
+
 Markdown 报告结构：
 
 | 区块 | 内容 |
@@ -765,7 +767,7 @@ Markdown 报告结构：
 | 阶段 | 工作流形态 |
 | --- | --- |
 | 0 | 无运行时工作流；阶段 0 冻结本文档与数据合同，并交付数据合同 Schema 与单元测试 |
-| 1 | 线性流程：获取仓库 → 文件解析 → 静态分析（及可信仓库的测试）→ 单 Agent 基础报告；CLI 与 FastAPI 共用 `ReviewService` |
+| 1 | 线性流程：获取仓库 → 文件解析 → 静态分析（及可信仓库的测试）→ 单 Agent 基础报告；CLI 与 FastAPI 共用 `ReviewService`；**阶段 1 不引入 LangGraph** |
 | 2 | LangGraph Supervisor-Worker：Manager → 四路并行 → Final Reviewer（汇总节点，不在任务树中）；进程内编排；Agent 异常捕获、保留已完成结果、`partial` 报告，**无重试** |
 | 3 | 在 Security Agent 内增加 SubGraph：三个子任务并行，事件通知，父子任务汇总；子任务局部失败时保留其他结果，**无重试** |
 | 4 | 入口改为入队：FastAPI → Redis → ARQ Worker → `ReviewService` → LangGraph；增加重试、超时、幂等、状态持久化与断点恢复 |
@@ -798,6 +800,10 @@ Markdown 报告结构：
 | 修订日期 | 2026-11-09 |
 | 修订类型 | v1.0 冻结前跨文档一致性修订（D-1、D-3、D-4、D-8） |
 | 修订内容 | ① 明确阶段 0 不要求运行时 Agent/工作流编排/业务执行代码，但 Pydantic Schema 与单元测试属于阶段 0 交付物（D-8）；② 补充阶段 3 编排层负责任务树深度、父任务存在性、环检测与派生权限校验（SW-9），且不新增 `task_depth` 字段（D-4）；③ 对“四个 Agent 全部失败”的全 null 报告补充已核验 `critical` 例外（D-1）；④ 明确综合分公式内部归一化不改变报告存储的配置权重（D-3）。 |
+| 修订日期 | 2026-11-10 |
+| 修订类型 | v1.1 阶段 1 实施基线修订 |
+| 修订内容 | ① §8.7 补充阶段 1 四件产物口径，明确 `report.json` 自阶段 2 起生成；② §10 明确阶段 1 不引入 LangGraph，由 `ReviewService` 直接编排工具链；③ §2、§6、§7 同步阶段 1 交付物与 FastAPI 最小同步入口口径。 |
+| 影响 | AC-1-14、AC-1-15；Stage 1.6；不改变阶段 2 起的工作流设计。 |
 | 数据合同权威顺序 | `task_contracts.md` 是数据合同唯一权威；本文档不得与其冲突。 |
 | 阶段归属 | 任务树拓扑与派生权限属于阶段 3；失败重试、持久化与调度属于阶段 4。 |
 | 架构影响 | 未改变整体系统架构、阶段划分与核心业务方向。 |

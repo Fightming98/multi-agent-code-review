@@ -3,11 +3,11 @@
 | 项目 | 内容 |
 | --- | --- |
 | 项目名称 | Multi-Agent Code Review System（多 Agent 协作代码审查系统） |
-| 文档版本 | v1.0 |
+| 文档版本 | v1.1（阶段 1 实施基线修订） |
 | 适用范围 | Multi-Agent Code Review System 阶段 0～阶段 7 的工程实施基线 |
-| 当前阶段 | 阶段 0：工程初始化与需求冻结 |
-| 最后更新 | 2026-11-09 |
-| 状态 | 已冻结（Frozen） |
+| 当前阶段 | 阶段 1：单 Agent 工程基础（实施基线） |
+| 最后更新 | 2026-11-10 |
+| 状态 | 已冻结（Frozen）；阶段 1 澄清见 FR-9.1、§8、修订记录 |
 | 关联文档 | `architecture.md`、`workflow.md`、`task_contracts.md`、`acceptance.md` |
 
 > 本文档回答“系统要做什么、不做什么、做到什么程度”。系统如何搭建见 `architecture.md`，业务如何流转见 `workflow.md`，数据如何约定见 `task_contracts.md`，如何判定完成见 `acceptance.md`。
@@ -300,7 +300,7 @@
 
 | 编号 | 需求 | 阶段 |
 | --- | --- | --- |
-| FR-9.1 | 最终产出 Markdown 与 JSON 两种报告，JSON 报告必须符合 `ReviewReport` Schema。 | 1 起 |
+| FR-9.1 | 最终产出 Markdown 与 JSON 两种报告，JSON 报告必须符合 `ReviewReport` Schema。阶段 1 仅生成三份基础 JSON，符合阶段 1 专用 Artifact Schema；完整 `ReviewReport` 自阶段 2 起生成。 | 1 起（基础 JSON）/ 2 起（ReviewReport） |
 | FR-9.2 | 报告包含：综合评分与结论、各维度评分与 Finding 数量、重点风险（严重级别、文件、行号）、测试摘要、执行统计、成本统计。 | 2 起 |
 | FR-9.3 | 部分完成时报告必须明确标注 `partial`，并说明缺失的维度与原因。 | 2 起 |
 | FR-9.4 | 报告中的评分、问题与执行数据必须来自真实代码分析与模型调用；示意数据必须标注为示意。 | 全部 |
@@ -443,7 +443,7 @@
 | 阶段 | 名称 | 范围（做什么） | 明确不做 |
 | --- | --- | --- | --- |
 | 0 | 工程初始化与需求冻结 | 工程骨架、Conda 环境、配置、五份核心文档、数据合同 Schema 与单元测试 | 任何 Agent、LLM 调用、GitHub 获取、分析工具、LangGraph、Redis 等 |
-| 1 | 单 Agent 工程基础 | GitHub 仓库获取与安全校验、固定 Commit、文件解析与过滤、Ruff/Bandit/Radon、对可信仓库的 Pytest/Coverage、`ReviewService`、CLI + 可选 FastAPI、基础 Markdown/JSON 报告 | 多 Agent、LangGraph、异步队列、对外部仓库执行测试 |
+| 1 | 单 Agent 工程基础 | GitHub 仓库获取与安全校验、固定 Commit、文件解析与过滤、Ruff/Bandit/Radon、对可信仓库的 Pytest/Coverage、`ReviewService`、CLI + 最小同步 FastAPI（阶段 1 必做）、基础 Markdown/JSON 报告 | 多 Agent、LangGraph、异步队列、对外部仓库执行测试 |
 | 2 | LangGraph Supervisor-Worker | `ReviewState`、Manager、四个专业 Agent、并行 Fan-out/Fan-in、Agent 异常捕获与 `partial` 报告、Final Reviewer（汇总节点，不创建 `AgentTask`；Evidence Validator、去重、评分、阻断规则）、报告 | SubAgent、Agent 重试与退避、任务持久化与恢复、Redis/ARQ、MCP、A2A |
 | 3 | SubAgent 分层编排 | Security Agent 的三个子任务、父子任务关系、进程内 `TaskEvent`、并发限制、父任务汇总规则 | 重试与退避（阶段 4）、跨进程事件、持久化、其他 Agent 的 SubAgent（可选） |
 | 4 | 异步任务与失败恢复 | Redis + ARQ、状态机、重试/超时/退避、幂等、三层并发控制、PostgreSQL 持久化、Checkpointer、Redis Streams 事件、Webhook 接收基础设施（HMAC 校验、`delivery_id` 幂等）、Docker Compose 管理基础设施 | MCP、A2A、完整 Compose 部署 |
@@ -546,9 +546,9 @@ OpenTelemetry Trace、LangSmith 调试、Token 成本统计、GitHub PR Webhook 
 | R7 | 过早引入多项技术导致问题难以定位 | 严格分阶段，验收通过后再前进。 |
 | R8 | 评分权重缺乏依据 | 设计为可配置规则，并通过测试样例集迭代校准。 |
 
-### 11.3 待确认事项（建议在阶段 1 开始前确认）
+### 11.3 已确认事项（建议在阶段 1 开始前确认）
 
-| 编号 | 事项 | 建议默认值 |
+| 编号 | 事项 | 默认值 |
 | --- | --- | --- |
 | D1 | Final Reviewer 的“证据核验、去重、评分”是纯确定性代码，还是确定性 + LLM 混合？ | 核验与评分用确定性代码；LLM 仅用于生成摘要与解释。 |
 | D2 | 仓库大小、文件数量、单文件大小、下载超时的具体阈值。 | 阶段 1 在 `config/settings.py` 中定义，并在 `acceptance.md` 记录。 |
@@ -582,6 +582,10 @@ OpenTelemetry Trace、LangSmith 调试、Token 成本统计、GitHub PR Webhook 
 | 修订日期 | 2026-11-09 |
 | 修订类型 | v1.0 冻结前跨文档一致性修订（D-1、D-2、D-3） |
 | 修订内容 | ① 明确所有维度无有效评分时，结论在不存在已核验 `critical` Finding 时为 `COMMENT`，存在时为 `REQUEST_CHANGES`（与 RP-16 一致）；② 将硬性阻断范围统一为任意维度已核验 `critical` Finding（含外部 A2A Agent Finding），不再限定为“critical 安全漏洞”（与 RP-06、EX-4 一致）；③ 明确四个维度配置权重始终保持原始配置值，仅在综合分计算公式内部对有效维度权重归一化（与 RP-11、RP-16 一致）。 |
+| 修订日期 | 2026-11-10 |
+| 修订类型 | v1.1 阶段 1 实施基线修订 |
+| 修订内容 | ① FR-9.1 明确阶段 1 只生成三份基础 JSON（阶段 1 Artifact Schema），完整 `ReviewReport` 自阶段 2 起生成；② §8 阶段 1 范围明确 FastAPI 为最小同步入口（阶段 1 必做）；③ 依据 `实施决策.md` Q2、Q3 裁定，不改变阶段 0 需求与 AC 编号。 |
+| 影响 | AC-1-14、AC-1-15；Stage 1.6；不改变阶段 2 起的 ReviewReport 合同。 |
 | 数据合同权威顺序 | `task_contracts.md` 是数据合同唯一权威；本文档不得与其冲突。 |
 | 阶段归属 | 任务树深度、父子存在性与环检测属于阶段 3 编排层；失败重试、持久化与调度属于阶段 4。 |
 | 架构影响 | 未改变整体系统架构、阶段划分与核心业务方向。 |

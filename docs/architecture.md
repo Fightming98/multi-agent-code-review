@@ -3,11 +3,11 @@
 | 项目 | 内容 |
 | --- | --- |
 | 项目名称 | Multi-Agent Code Review System |
-| 文档版本 | v1.0 |
+| 文档版本 | v1.1（阶段 1 实施基线修订） |
 | 适用范围 | Multi-Agent Code Review System 阶段 0～阶段 7 的工程实施基线 |
-| 当前阶段 | 阶段 0：工程初始化与需求冻结 |
-| 最后更新 | 2026-11-09 |
-| 状态 | 已冻结（Frozen） |
+| 当前阶段 | 阶段 1：单 Agent 工程基础（实施基线） |
+| 最后更新 | 2026-11-10 |
+| 状态 | 已冻结（Frozen）；阶段 1 补充条款见 §7.1.1、§8.1、修订记录 |
 | 关联文档 | `requirements.md`、`workflow.md`、`task_contracts.md`、`acceptance.md` |
 
 > **阅读提示：本文档描述的是“最终目标架构”。** 阶段 0 实际落地的只有工程骨架与数据合同（见第 12 章）。文中每个组件都标注了引入阶段，请勿把目标架构当作当前已实现功能。
@@ -208,7 +208,7 @@ flowchart TB
 | --- | --- | --- |
 | PostgreSQL | 审查作业、任务（含父子关系）、AgentResult、Finding、报告元数据、事件日志、Token 使用记录 | 4 |
 | Redis | 队列、缓存、必要的消息传递（事件流） | 4 |
-| 本地 `reports/` 目录 | `metadata.json`、`static_analysis.json`、`test_report.json`、`report.md`、`report.json` | 1 |
+| 本地 `reports/` 目录 | 阶段 1：`metadata.json`、`static_analysis.json`、`test_report.json`、`report.md`；阶段 2 起增加 `report.json` | 1 |
 | LangGraph Checkpointer 存储 | 工作流执行状态与断点 | 4 |
 
 ### ⑧ 可观测性层
@@ -249,8 +249,22 @@ flowchart TB
 补充说明：
 
 - **LangSmith 与 OpenTelemetry 并不冲突**：LangSmith 侧重 Agent 工作流调试、模型调用与评估；OpenTelemetry 侧重跨服务统一 Trace、基础设施与工具调用观测。
+  - OpenTelemetry：整个系统的基础设施级可观测性。
+  - LangSmith：LLM / Agent 执行追踪和评估。
+
 - **Redis + ARQ 的分工**：Redis 负责队列、缓存与必要的消息传递；ARQ 负责 Python 后台任务的取出与执行。不要把 Redis 本身误认为完整的任务执行引擎。
-- **一句话分工**：*LangGraph 管理工作流，事件机制负责通知，数据库负责持久化。*
+- **一句话分工**：LangGraph 管理工作流，事件机制负责通知，数据库负责持久化。
+- **LangChain Chat Models 与 LangGraph 的关系需要分清**
+  - LangGraph：负责工作流编排。
+  - LangChain Chat Models：提供统一模型调用接口。
+  - Provider Adapter：负责不同模型供应商的配置与适配。
+  - LLM Provider：实际提供模型推理能力。
+
+- **Redis、ARQ 和 LangGraph 的边界需要明确**
+  - Redis：队列和缓存基础设施。
+  - ARQ：后台任务调度与 Worker 执行。
+  - LangGraph：一次 Review 内部的 Agent 工作流。
+
 
 ---
 
@@ -293,12 +307,16 @@ flowchart LR
 ```mermaid
 flowchart LR
     CLI["CLI"] --> RS["ReviewService"]
-    API["FastAPI<br/>仅受控演示"] --> RS
-    RS --> LG["LangGraph 工作流<br/>当前进程内执行"]
-    LG --> OUT["reports/ 报告文件"]
+    API["FastAPI<br/>受控同步入口"] --> RS
+    RS --> P1["阶段 1：工具链 + 报告模块<br/>（无 LangGraph）"]
+    RS -.->|"阶段 2 起"| LG["LangGraph 工作流<br/>当前进程内执行"]
+    P1 --> OUT["reports/ 报告文件"]
+    LG --> OUT
 ```
 
-- CLI 为主要开发与验收入口；FastAPI 仅为可选的本地演示与接口测试入口。
+- **阶段 1 不引入 LangGraph**：`ReviewService` 直接编排仓库获取、文件解析、静态分析、可信测试与报告生成。
+- 阶段 2 起，`ReviewService` 内部改为调用 LangGraph 工作流，入口层与报告目录保持不变。
+- CLI 为主要开发与验收入口；FastAPI 为阶段 1 必做的受控同步入口，仅用于本地演示与接口测试。
 - 两个入口调用同一个 `ReviewService`，避免出现两套审查逻辑。
 - 不将长时间运行的 Agent 工作流放在 HTTP 请求中执行。
 - 不要求实现多进程 Worker、任务队列与分布式任务状态管理。
@@ -348,9 +366,33 @@ flowchart LR
 | `docs/` | 项目文档 | 0 |
 | `reports/` | 审查结果输出 | 0 |
 
+#### 7.1.1 阶段 1 组件映射（2026-11-10 补充）
+
+阶段 1 不新增 `repository/`、`inspectors/` 等目录，组件按以下路径落位：
+
+| 组件 | 文件路径 | 职责 |
+| --- | --- | --- |
+| Repository Manager | `src/code_review/tools/repository_manager.py` | Git Clone、Commit SHA 固定、工作区管理 |
+| Repository Inspector | `src/code_review/tools/repository_inspector.py` | 仓库遍历、文件识别、源码统计 |
+| URL Validator | `src/code_review/tools/url_validator.py` | GitHub URL 校验及安全限制 |
+| File Filters | `src/code_review/tools/file_filters.py` | 文件类型、敏感文件、二进制过滤 |
+| AnalysisTool | `src/code_review/tools/base.py` | 静态分析工具抽象 |
+| ToolExecutionResult | `src/code_review/tools/base.py` | 工具执行结果 DTO |
+| ReviewService | `src/code_review/services/review_service.py` | 唯一业务入口 |
+| LLM Analyzer | `src/code_review/services/llm_analyzer.py` | 非 Agent 的 LLM 语义分析 |
+| Artifact Models | `src/code_review/reporting/artifact_models.py` | 阶段 1 报告数据模型 |
+| Report Generator | `src/code_review/reporting/report_generator.py` | JSON 产物生成 |
+| Markdown Renderer | `src/code_review/reporting/markdown_renderer.py` | Markdown 报告渲染 |
+| CLI | `src/code_review/cli.py` | 命令行入口 |
+| FastAPI | `src/code_review/api/` | HTTP 接口（最小同步入口） |
+
+依赖方向必须服从 §7.2：`schemas` 不反向依赖 `services`；`tools` 不调用 `ReviewService`；CLI 与 API 只调用 `ReviewService`；`ReviewService` 调用工具、聚合器与报告模块。
+
 ### 7.2 模块调用方向与依赖规则
 
-**模块调用方向（调用方 → 被调用方）**：图中箭头由调用方指向被调用方。Python 的 import 方向与调用方向一致——**调用方可以导入被调用方，被调用方禁止反向导入调用方**。
+**模块调用方向（调用方 → 被调用方）**：图中箭头由调用方指向被调用方，即上层调用底层。
+
+注意：Python 的 import 方向与调用方向一致——**调用方可以导入被调用方（上层可 import 下层），被调用方禁止反向导入调用方**。
 
 ```mermaid
 flowchart TD
@@ -422,6 +464,25 @@ flowchart LR
 - Agent 的 Prompt 以独立文件保存（`prompts/*.md`），便于评审与版本管理。
 - SubAgent 不一定调用 LLM：确定性工具 Worker 也可以作为父 Agent 内部的执行单元。
 - 模型接入采用 Provider 抽象：第一版使用兼容 OpenAI API 的国内模型服务，后续扩展多模型。
+
+### 8.1 阶段 1 的非 Agent LLM 分析（2026-11-10 补充）
+
+阶段 1 不实现 `agents/`，但 AC-1-13 要求 LLM 辅助分析。该能力放在 `services/llm_analyzer.py`，遵循与 §8 相同的“工具证据 + LLM 语义”原则：
+
+```mermaid
+flowchart LR
+    TOOLS["确定性工具<br/>Ruff / Bandit / Radon / Pytest / Coverage"] --> EVID["工具证据<br/>ToolEvidence"]
+    EVID --> LLM["LLM Analyzer<br/>解释 + 语义补充"]
+    LLM --> PROP["Finding 提案"]
+    PROP --> CHECK["确定性证据校验<br/>路径 / 行号 / 代码片段"]
+    CHECK -->|"通过"| FIND["Finding<br/>agent_name=Stage1Analyzer<br/>verification_status=unverified"]
+    CHECK -->|"不通过"| REJ["llm_analysis.rejected[]<br/>保留拒绝原因"]
+```
+
+- LLM 只能解释工具结果、补充语义问题；不得创造 `ToolEvidence`，不得伪造路径、行号或代码片段。
+- 工具证据必须来自真实工具调用；LLM 的来源记录单独保存在 `llm_analysis`。
+- 阶段 1 不设置 Final Reviewer，也不把任何 Finding 标记为 `verified`。
+- 模型失败或未配置时，保留确定性工具结果，基础报告仍生成。
 
 ---
 
@@ -644,7 +705,7 @@ flowchart LR
 | 数据合同 | `src/code_review/schemas/` | `task.py`、`result.py`、`report.py`。 |
 | 单元测试 | `tests/unit/` | 验证数据合同。 |
 | 项目文档 | `docs/` | 五份核心文档。 |
-| 报告目录占位 | `reports/.gitkeep` | 后续存放审查结果。 |
+| 报告目录 | `reports/` | 后续存放审查结果。 |
 
 ### 12.2 阶段 0 中“尚不存在”的组件
 
@@ -682,7 +743,6 @@ multi-agent-code-review/
 │   ├── task_contracts.md
 │   └── acceptance.md
 └── reports/
-    └── .gitkeep
 ```
 
 ---
@@ -712,6 +772,10 @@ multi-agent-code-review/
 | 修订日期 | 2026-11-09 |
 | 修订类型 | v1.0 冻结前跨文档一致性确认（D-1～D-9） |
 | 修订内容 | 本文档的九层架构、组件职责、依赖方向与阶段边界经核对与最终数据合同一致，本轮无实质性架构修改。确认：`task_contracts.md` 为数据合同唯一权威；任务树深度、父任务存在性、环检测与派生权限属于阶段 3 编排层，不在阶段 0 单个 `AgentTask` Schema 中实现；阶段 0 仅交付工程骨架、Schema 与单元测试。 |
+| 修订日期 | 2026-11-10 |
+| 修订类型 | v1.1 阶段 1 实施基线修订 |
+| 修订内容 | ① 修正 §6.1 阶段 1～3 流程图中提前出现 LangGraph 的问题，明确阶段 1 由 `ReviewService` 直接编排工具链；② §3⑦ 明确阶段 1 只生成四件产物，`report.json` 自阶段 2 起生成；③ 新增 §7.1.1 阶段 1 组件映射；④ 新增 §8.1 阶段 1 非 Agent LLM 分析边界。 |
+| 影响 | AC-1-13、AC-1-14、AC-1-15；Stage 1.1～1.6；不改变阶段 0 数据合同。 |
 | 数据合同权威顺序 | `task_contracts.md` 是数据合同唯一权威；本文档不得与其冲突。 |
 | 阶段归属 | 任务树拓扑与派生权限属于阶段 3；失败重试、持久化与调度属于阶段 4。 |
 | 架构影响 | 未改变整体系统架构、阶段划分与核心业务方向。 |

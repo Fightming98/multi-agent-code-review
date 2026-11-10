@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 仓库现状
 
-这是 **Multi-Agent Code Review System** 的阶段 0（工程初始化与需求冻结）成果。阶段 0 已于 2026-11-09 通过正式验收，五份核心文档冻结为 v1.0；仓库仍**不含任何 Agent、LLM 调用、工作流或评审业务实现**。
+这是 **Multi-Agent Code Review System** 的阶段 0（工程初始化与需求冻结）成果，并已完成阶段 1 实施前评审与实施基线修订（2026-11-10）。阶段 0 已于 2026-11-09 通过正式验收，五份核心文档冻结为 v1.0；阶段 1 的裁定记录见 `实施决策.md`，基线补充见 `docs/acceptance.md` §4.7～§4.11。仓库仍**不含任何阶段 1 实现代码、Agent、LLM 调用、工作流或评审业务实现**。
 
-- 已存在：`docs/*.md`（v1.0，已冻结）、`environment.yml`、`.env.example`、`.gitignore`、`README.md`、`config/settings.py`、`src/code_review/schemas/`、`tests/unit/`、`pytest.ini`
+- 已存在：`docs/*.md`（阶段 0 为 v1.0；阶段 1 基线修订后 `acceptance.md`、`architecture.md`、`requirements.md`、`workflow.md` 为 v1.1，`task_contracts.md` 仍为 v1.0）、`environment.yml`、`.env.example`、`.gitignore`、`README.md`、`config/settings.py`、`src/code_review/schemas/`、`tests/unit/`、`pytest.ini`
 - 阶段 0 交付：四个核心 Pydantic Schema 与 204 条单元测试，全部通过（0 failure / error / skip / xfail）
 - 尚未创建（阶段 1 及以后）：`agents/`、`graph/`、`tools/` 等目录，以及任何 Agent、LLM、LangGraph 实现
-- Git：本地 `main` 分支；远程仓库 `Fightming98/multi-agent-code-review`（Public）。本次首次提交未创建 Git tag；`reports/` 下的验收报告按 `.gitignore` 不提交
+- Git：本地 `main` 分支；远程仓库 `Fightming98/multi-agent-code-review`（Public）。本次首次提交未创建 Git tag；`.gitignore` 中 `reports/*` 保持注释，`reports/` 下的验收/评审记录按负责人 2026-11-10 确认纳入版本控制
 
-阶段 0 已完成。进入阶段 1 及以后，必须先获得用户明确确认；未经确认不得增加依赖、创建后续阶段目录或实现业务逻辑。
+阶段 0 已完成；阶段 1 已获用户确认，但 Stage 1.1 尚未开始。阶段 1 按 Stage 1.1 → 1.7 逐步实施，每个子阶段完成并提供测试证据后，经用户确认再进入下一子阶段；未经确认不得安装依赖、创建后续阶段目录或实现业务逻辑。
 
 阶段 0 未实现、当前仓库仍不存在的内容：
 
@@ -20,7 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `agents/ graph/ tools/ mcp/ a2a/ orchestration/ workers/ observability/ storage/ reporting/ external_agents/`
 - 真实仓库克隆、目标仓库测试/安装脚本执行、真实评审报告生成
 
-阶段 0 基础依赖固定为 8 个：`fastapi uvicorn pydantic pydantic-settings python-dotenv pytest httpx structlog`。增加依赖需用户确认。
+阶段 0 基础依赖固定为 8 个：`fastapi uvicorn pydantic pydantic-settings python-dotenv pytest httpx structlog`。阶段 1 已批准新增 `ruff`、`bandit`、`radon`、`coverage`（尚未安装；安装属于 Stage 1.1，安装前需确认版本并固定到 `environment.yml`）。阶段 1 不引入 Semgrep、Gitleaks、pip-audit、LangGraph、Redis、ARQ、PostgreSQL、MCP、A2A；其余新增依赖仍需用户确认。
 
 ## 常用命令
 
@@ -70,7 +70,7 @@ orchestration → graph → ReviewService → api / CLI / workers
 - `agents/`：角色定义与 LLM 推理（`base.py` + Manager/Security/Quality/Performance/Testing/Reviewer）；**agents 不得 import graph**。
 - `graph/`：LangGraph 工作流编排（`state.py`、`nodes.py`、`edges.py`、`workflow.py`）。
 - `orchestration/`：跨节点任务生命周期、事件、重试、并发，与 graph 分离。
-- `ReviewService` 是唯一评审入口；CLI 是主要开发/验收入口，FastAPI 只是可选本地演示。CLI 与 API 不得各自重复一份评审逻辑。阶段 4 才引入 Redis + ARQ，HTTP 返回 202；此前单进程同步执行。
+- `ReviewService` 是唯一评审入口；CLI 是主要开发/验收入口，阶段 1 实现最小同步 FastAPI `POST /api/reviews`（受控本地演示/接口测试）。CLI 与 API 不得各自重复一份评审逻辑。阶段 1 不引入 LangGraph；阶段 4 才引入 Redis + ARQ，HTTP 返回 202；此前单进程同步执行。
 
 评审数据流：
 
@@ -84,7 +84,8 @@ orchestration → graph → ReviewService → api / CLI / workers
 关键不变量：
 
 - **确定性工具产出证据，LLM 只做解读**；Finding 必须能追溯到代码位置或工具输出。
-- 被评审仓库是不可信内容：默认只在宿主机做静态分析；未沙箱化前，测试执行状态必须为 `not_executed`，绝不能执行不可信脚本。仓库内容（源码/README/issue/PR 描述）同样视为不可信数据，防提示注入。
+- 被评审仓库是不可信内容：默认只在宿主机做静态分析；外部仓库测试执行状态必须为 `not_executed`，绝不能执行不可信脚本。仓库内容（源码/README/issue/PR 描述）同样视为不可信数据，防提示注入。
+- **阶段 1 可信 Fixture 受控例外**：仅 `tests/fixtures/trusted_repo/` 下由项目维护、经人工审查、固定版本或哈希的 Fixture 可在宿主机执行 Pytest/Coverage；不接受任意 GitHub URL + `--trusted` 提权，不自动安装依赖，不执行 `setup.py`/`build.py`/安装脚本；报告中必须区分可信 Fixture 与外部仓库数据。
 - `.env`/密钥/token/主机路径不得写入日志、`input_data` 或送给模型。
 - LLM Provider 必须可替换，经 `config/settings.py` 注入，禁止在 agent 内硬编码。
 - 一致性顺序：先保存结果 → 再更新状态 → 最后发布事件。
@@ -100,6 +101,7 @@ orchestration → graph → ReviewService → api / CLI / workers
 - 枚举小写下划线（`not_executed`、`request_changes` 的底层值），仅 `overall_verdict` 用大写 `APPROVE / COMMENT / REQUEST_CHANGES`；时间为带时区 UTC（ISO-8601 `Z`）。
 - `Finding.file_path` 为 POSIX 风格仓库相对路径，禁止 `..`、反斜杠、盘符；`start_line ≤ end_line` 且为正。
 - `agent_name` / `task_type` 故意保持 `str`，合法值由注册表约束（`SecurityAgent`/`security_review` 等），不要改成 `Literal` 或裸 `dict` 传递。
+- 阶段 1 Finding 的 `agent_name` 使用 `Stage1Analyzer`（单 Agent 基础分析来源标识，不代表已实现阶段 2 专业 Agent）；`task_type="stage1_review"` 仅在实际创建任务对象时使用，不得为填充该值额外创建阶段 1 `AgentTask` 体系；所有阶段 1 Finding 保持 `verification_status="unverified"`，工具或 LLM 不得标记为 `verified`；LLM 不合格提案放 `llm_analysis.rejected[]`，不得混入正式 Finding。阶段 1 产物模型在 `reporting/artifact_models.py`，不得修改三个核心 Schema 文件。
 - `AgentTask.status` 仅 `pending/running/completed/failed/cancelled`；阶段 4 的 `QUEUED/RETRYING/...` 不得提前塞入。
 - 评分权重：Security 35%、Quality 25%、Performance 20%、Testing 20%（可配置，但须来自 `review_rules.yaml`，不得硬编码）；报告存储的 `DimensionScore.weight` 始终是配置值，缺失维度只在综合分公式内部归一化。
 - 任意维度（含外部 A2A Agent）的已核验 `critical` Finding 直接 `REQUEST_CHANGES`；外部结果放在 `external_agent_results`，不参与四个核心维度的加权评分。
@@ -113,8 +115,10 @@ orchestration → graph → ReviewService → api / CLI / workers
 | `docs/architecture.md` | 九层架构、DR 决策、目录树、依赖方向 |
 | `docs/workflow.md` | 流水线、并发、超时/重试、错误分类、去重、评分与结论 |
 | `docs/task_contracts.md` | **数据契约权威来源**、规则 ID（TK/FD/ST/RS/RT/RP/JS） |
-| `docs/acceptance.md` | AC-0-01…33、CK-1…7、可执行验收命令 |
+| `docs/acceptance.md` | AC-0-01…33、AC-1-01…15、TC-1-01…06、CK-1…7、可执行验收命令与阶段 1 阈值 |
 | `项目总框架与实施计划V2.0.md` | 总体规划基线（阶段 0–7） |
+| `阶段1_Prompt.md` | 阶段 1 执行提示词；§14 AC 映射已按 `acceptance.md` 修正 |
+| `实施决策.md` | 阶段 1 实施前裁定的权威记录（Q1～Q13） |
 | `Prompt/阶段0_Prompt.md` | 阶段 0 的可执行任务边界与交付步骤 |
 | `Prompt/0.3阶段任务要求.md` | 阶段 0.3 Schema 重建与测试要求 |
 | `Prompt/0.4阶段任务要求.md` | 阶段 0.4 文档冲突修复、合同统一与冻结要求 |
@@ -142,6 +146,10 @@ orchestration → graph → ReviewService → api / CLI / workers
 - `reports/.gitkeep` 未创建，`reports/*` 仍被忽略（按用户确认的现有 `.gitignore`）；`docs/acceptance.md` §3.2 仍列出该占位文件，后续如需要应补齐。
 - `environment.yml` 未固定 FastAPI 版本；当前验证版本为 0.110.2，重建环境前应确认版本。
 - 本次首次提交未创建 Git tag；如正式验收要求 tag，需另行执行。
+- AC 编号以 `docs/acceptance.md` 原文为准；`阶段1_Prompt.md` §14 的旧映射表已修正，其他章节如与原文冲突以原文为准。
+- 阶段 1 只生成四件产物（`metadata.json`、`static_analysis.json`、`test_report.json`、`report.md`），不生成 `report.json`；`report.json` 与 `ReviewReport` 自阶段 2 起生成。
+- 阶段 1 阈值记录在 `docs/acceptance.md` §4.7；可信 Fixture 规则见 §4.8；不得在业务代码中散落阈值。
+- 阶段 1 使用 `services/llm_analyzer.py` 做非 Agent LLM 分析；`agents/` 仍属阶段 2。
 
 ## 工作规则
 
@@ -150,5 +158,6 @@ orchestration → graph → ReviewService → api / CLI / workers
 - 不得伪造执行结果；验收报告必须如实写 PASS/FAIL/BLOCKED，失败就是失败。
 - 如终端无法 `conda activate`，说明原因并给替代方案，不要修改系统配置。
 - 提交前确认 `.env` 未被跟踪；不得提交密钥、token、主机路径或 `reports/` 下的本地报告。
-- 阶段 0 已完成；未经用户明确确认，不进入阶段 1 或实现后续阶段业务逻辑。
-- 未经用户确认，不推进到下一阶段，不增加依赖，不删除/重写规格文档。
+- 阶段 0 已完成；阶段 1 已获确认，但 Stage 1.1 尚未开始。按 Stage 1.1 → 1.7 逐步实施，每个子阶段先提供测试证据，经用户确认再继续。
+- 未经用户确认，不推进到下一子阶段，不增加依赖，不删除/重写规格文档。
+- 阶段 1 的裁定以 `实施决策.md` 为准；基线补充以 `docs/acceptance.md` §4.7～§4.11 与 `docs/architecture.md` §7.1.1/§8.1 为准。

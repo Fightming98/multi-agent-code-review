@@ -3,14 +3,16 @@
 | 项目 | 内容 |
 | --- | --- |
 | 项目名称 | Multi-Agent Code Review System |
-| 文档版本 | v1.0 |
+| 文档版本 | v1.1（阶段 1 实施基线修订） |
 | 适用范围 | Multi-Agent Code Review System 阶段 0～阶段 7 的工程实施基线 |
-| 当前阶段 | 阶段 0：工程初始化与需求冻结 |
-| 最后更新 | 2026-11-09 |
-| 状态 | 已冻结（Frozen） |
+| 当前阶段 | 阶段 1：单 Agent 工程基础（实施基线） |
+| 最后更新 | 2026-11-10 |
+| 状态 | 已冻结（Frozen）；阶段 1 补充条款见 §4.7～§4.11 |
 | 关联文档 | `requirements.md`、`architecture.md`、`workflow.md`、`task_contracts.md` |
 
 > 本文档回答“如何证明某个阶段真的完成了”。**阶段 0 的验收标准是本文档的重点，已详细定义；阶段 1～7 的标准依据总规划建立，进入对应阶段前再细化阈值与命令，当前不需要提前实现。**
+>
+> **阶段 1 实施基线修订（2026-11-10）**：本次仅补充阶段 1 的阈值、验收命令、可信 Fixture 规则与 AC-1-15 产物口径；不修改 AC-1-01～AC-1-15 的编号和既有语义，不降低任何验收标准。变更记录见 §4.11。
 
 ---
 
@@ -309,7 +311,7 @@ python -c "import re,pathlib; ids=set(re.findall(r'\b(?:TK|ST|FD|RS|RP)-\d{2}\b'
 
 ### 4.2 交付物
 
-GitHub 仓库获取模块（含安全校验与 Commit 固定）、文件解析器、Ruff / Bandit / Radon 接入、对可信仓库的 Pytest / Coverage.py 执行、`ReviewService`、CLI、可选的 `POST /api/reviews`、LLM Provider（兼容 OpenAI API 的国内模型服务）、基础报告输出（`metadata.json`、`static_analysis.json`、`test_report.json`、`report.md`）、单元与集成测试、受控的可信测试仓库。
+GitHub 仓库获取模块（含安全校验与 Commit 固定）、文件解析器、Ruff / Bandit / Radon 接入、对可信仓库的 Pytest / Coverage.py 执行、`ReviewService`、CLI、最小同步的 `POST /api/reviews`（阶段 1 必做）、LLM 语义分析模块（兼容 OpenAI API 的国内模型服务，如 DeepSeek；Provider 通过 `config/settings.py` 注入）、基础报告输出（`metadata.json`、`static_analysis.json`、`test_report.json`、`report.md`）、单元与集成测试、受控的可信测试仓库。
 
 ### 4.3 功能验收标准
 
@@ -328,8 +330,8 @@ GitHub 仓库获取模块（含安全校验与 Commit 固定）、文件解析�
 | AC-1-11 | 静态分析工具有超时、输出大小与资源限制。 |
 | AC-1-12 | 仓库工作区为只读，分析不会修改原始代码。 |
 | AC-1-13 | LLM 仅负责解释静态分析结果与补充语义问题；由模型生成的 Finding 必须满足证据合同，不合规的被丢弃并记录。 |
-| AC-1-14 | CLI 与 FastAPI（若实现）调用**同一个 `ReviewService`**，不存在两套审查逻辑；HTTP 请求中不执行长时间运行的 Agent 工作流。 |
-| AC-1-15 | 生成 `reports/<review_id>/` 下的四个基础输出文件，Markdown 报告可读；JSON 输出符合 `task_contracts.md`。 |
+| AC-1-14 | CLI 与 FastAPI 调用**同一个 `ReviewService`**，不存在两套审查逻辑；FastAPI 仅提供受控的同步入口，HTTP 请求中不执行长时间运行的 Agent 工作流。 |
+| AC-1-15 | 生成 `reports/<review_id>/` 下的四个基础输出文件，Markdown 报告可读；三份 JSON 分别符合阶段 1 专用 Pydantic Artifact Schema；`report.md` 由三份结构化数据渲染；阶段 1 不要求生成完整 `ReviewReport`。 |
 
 ### 4.4 测试验收标准
 
@@ -340,11 +342,13 @@ GitHub 仓库获取模块（含安全校验与 Commit 固定）、文件解析�
 | TC-1-03 | 使用**自己编写**的可信测试仓库完成一次集成测试，覆盖 AC-1-01 ～ AC-1-15。 |
 | TC-1-04 | 一次真实 GitHub 仓库 Clone 的验证（可作为手动验收，记录 Commit SHA 与输出）。 |
 | TC-1-05 | 安全用例：恶意 URL、路径穿越、含敏感文件的仓库、超大文件，行为符合预期。 |
-| TC-1-06 | 一次真实模型调用的冒烟测试（记录模型名与 `usage`），单独标记，不纳入常规单元测试。 |
+| TC-1-06 | 一次真实模型调用的冒烟测试（记录模型名与 `usage`），单独标记，不纳入常规单元测试。无合法 API Key 时记为 **BLOCKED / NOT RUN**，不得记为 PASS；阶段 1 整体结论同时为 **BLOCKED**，不得判 PASS。 |
 
 ### 4.5 通过条件
 
 AC-1-01 ～ AC-1-15 与 TC-1-01 ～ TC-1-06 全部满足；使用的审查样例仓库为自己编写或经过确认可安全执行；未对外部不可信仓库在宿主机执行任何代码。
+
+**三态结论规则（2026-11-10）**：阶段 1 最终状态只允许 `PASS` / `BLOCKED` / `FAIL`。任一 AC/TC 因环境缺失（如无合法模型 API Key）无法执行时记为 `BLOCKED`，阶段 1 整体不得判 `PASS`；`BLOCKED ≠ PASS`，验收报告必须保留该项的 `BLOCKED` 状态与原因。
 
 ### 4.6 不通过时需要修复的问题
 
@@ -355,6 +359,89 @@ AC-1-01 ～ AC-1-15 与 TC-1-01 ～ TC-1-06 全部满足；使用的审查样例
 | 报告中出现伪造的测试或覆盖率数据 | 改为仅使用工具真实输出。 |
 | CLI 与 API 逻辑重复 | 抽取到 `ReviewService`。 |
 | 敏感文件进入 LLM 上下文 | 修复过滤规则并补测试。 |
+
+### 4.7 阶段 1 阈值与资源限制（2026-11-10 补充）
+
+| 配置项 | 阈值 | 超限处理 |
+| --- | --- | --- |
+| Clone 超时 | 300 秒 | 终止 Git 进程树，记录 `timeout`，清理临时目录 |
+| Git 命令超时 | 300 秒 | 同上 |
+| 仓库大小 | 200 MB | Clone 过程中监控工作区磁盘占用；超限终止并拒绝审查；Clone 完成后复核；记录 `resource_limit_exceeded` |
+| 文件数量 | 5,000 | 拒绝本次审查并记录 |
+| 单文件大小 | 2 MB | 跳过该文件，记录过滤原因 |
+| 总扫描大小 | 50 MB | 停止继续扫描；报告 `partial` 并记录原因，或按明确策略拒绝；不得静默截断，不得把部分结果伪装成完整结果 |
+| 单个静态工具超时 | 120 秒 | 终止进程，记录 `timeout` |
+| 单工具 stdout/stderr | 各 5 MiB | 截断并标记 `truncated=true` |
+| 单工具 Finding 上限 | 1,000 | 截断并记录 |
+| Pytest 超时 | 300 秒 | 终止进程，记录 `failed/timeout`；不得记为 `not_executed` |
+| Coverage 超时 | 300 秒 | 终止进程，记录 `failed/timeout` |
+| LLM 请求超时 | 60 秒 | 记录 `timeout`，保留确定性工具结果 |
+| LLM 输入上限 | 60,000 字符 | 只选取必要代码片段，不传敏感内容 |
+| LLM 输出上限 | 2,000 tokens | 超出部分截断或拒收 |
+| LLM temperature | 0.0 | — |
+| LLM Finding 提案上限 | 50 | 超出部分丢弃并记录 |
+| 可信仓库名单 | 仅 `trusted_fixture_v1` | 其他仓库一律视为不可信 |
+| GitHub 域名 | 仅 `github.com` | 拒绝其他域名与子域名 |
+| GitHub 端口 | 443 或默认端口 | 拒绝非常规端口 |
+
+补充约束：
+
+- 仓库大小限制不是 Clone 完成后的事后统计；Clone 过程中必须监控工作区磁盘占用，超限时终止 Git 进程树。
+- `keep_workspace_on_failure=false` 可作为默认值，但必须保留错误信息、资源超限记录和诊断证据；不得因为删除工作区丢失审计信息。
+- 阈值实现必须集中在 `config/settings.py`，不得散落在业务代码中。
+
+### 4.8 可信测试 Fixture 规则（2026-11-10 补充）
+
+1. 仅 `tests/fixtures/trusted_repo/` 下由项目维护、经人工审查的 Fixture 可在宿主机执行 Pytest/Coverage。
+2. 使用固定版本或哈希清单；运行时不接受动态替换。
+3. 不接受任意 GitHub URL + `--trusted` 提升信任等级。
+4. 不自动安装 Fixture 的第三方依赖。
+5. 不执行 Fixture 中的 `setup.py`、`build.py` 或任意安装脚本。
+6. 外部 GitHub 仓库一律不可信，测试状态必须为 `not_executed` 并写明原因。
+7. 可信 Fixture 与外部仓库的执行数据必须在报告中区分。
+8. 该例外仅适用于阶段 1 的项目自维护 Fixture；阶段 2 起仍按沙箱与受控执行策略处理。
+
+### 4.9 阶段 1 产物验收口径（2026-11-10 补充）
+
+- `reports/<review_id>/` 仅生成 `metadata.json`、`static_analysis.json`、`test_report.json`、`report.md` 四件；不生成 `report.json`。
+- 三份 JSON 分别通过阶段 1 专用 Pydantic Artifact Schema 校验（`reporting/artifact_models.py`）；不得修改阶段 0 三个核心 Schema 文件。
+- `report.md` 由三份结构化数据渲染；不得包含 JSON 中没有的实际审查结果。
+- 阶段 1 不生成完整 `ReviewReport`；`report.json` 与 `ReviewReport` 自阶段 2 起由 Final Reviewer 生成。`requirements.md` FR-9.1 的 JSON 报告要求按阶段 2 起解释。
+- Finding 的 `agent_name` 使用 `Stage1Analyzer`（单 Agent 基础分析来源标识，不代表已实现阶段 2 专业 Agent）；`task_type="stage1_review"` 仅在实际创建任务对象时使用，不得为填充该值额外创建阶段 1 `AgentTask` 体系；所有阶段 1 Finding 的 `verification_status` 保持 `unverified`，工具或 LLM 不得标记为 `verified`；LLM 不合格提案放 `llm_analysis.rejected[]`，不进入正式 Finding 列表。
+
+### 4.10 阶段 1 验收命令（2026-11-10 补充）
+
+以下命令统一使用项目 Conda 环境，避免 shell 的 `python` 指向 base 环境：
+
+```powershell
+# 阶段 0 回归 + 阶段 1 单元测试
+conda run -n multi-agent-review python -m pytest tests/unit -q
+
+# 阶段 1 集成测试（不联网、不调用真实 LLM）
+conda run -n multi-agent-review python -m pytest tests/integration -q -m "not real_network and not llm_smoke"
+
+# 真实 GitHub Clone（需网络与项目负责人批准）
+conda run -n multi-agent-review python -m pytest tests/integration -q -m real_network
+
+# 真实 LLM 冒烟（需 API Key）
+$env:RUN_LLM_SMOKE="1"; conda run -n multi-agent-review python -m pytest tests/integration -q -m llm_smoke
+```
+
+阶段 1 CLI 的目标命令（Stage 1.6 实现后以此为准）：
+
+```powershell
+conda run -n multi-agent-review python -m code_review.cli review https://github.com/pallets/itsdangerous --branch main
+```
+
+### 4.11 变更记录
+
+#### v1.1（2026-11-10，阶段 1 实施基线修订）
+
+- 原因：完成阶段 1 实施前检查后的负责人裁定，补齐阶段 1 阈值、验收命令、可信 Fixture 规则与 AC-1-15 产物口径。
+- 修改：§4.2 交付物、AC-1-14、AC-1-15；新增 §4.7～§4.10；§4.5 与 TC-1-06 补充 `PASS` / `BLOCKED` / `FAIL` 三态规则。
+- 影响：AC-1-09、AC-1-10、AC-1-14、AC-1-15；TC-1-01～TC-1-06；Stage 1.1～Stage 1.7。
+- 未修改：AC-1-01～AC-1-13 的编号与既有语义；阶段 0 验收内容；`task_contracts.md`。
+- 测试同步：阶段 0 204 条单元测试回归通过；阶段 1 测试按子阶段补充。
 
 ---
 
