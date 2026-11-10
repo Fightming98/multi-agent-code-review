@@ -15,9 +15,10 @@ _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
 
 class Settings(BaseSettings):
-    """阶段 0 配置项。
+    """阶段 0/1 配置项。
 
     默认值必须安全：不包含真实 API Key、模型地址或任何凭据。
+    阶段 1 的仓库与工具阈值集中在本次配置中，见 docs/acceptance.md §4.7。
     """
 
     model_config = SettingsConfigDict(
@@ -41,10 +42,35 @@ class Settings(BaseSettings):
     max_concurrent_agents: int = Field(default=4, ge=1, le=64)
     max_retry_attempts: int = Field(default=2, ge=0, le=10)
 
+    # 阶段 1：仓库获取与资源限制（docs/acceptance.md §4.7）
+    github_allowed_host: str = "github.com"
+    github_allowed_port: int = Field(default=443, ge=1, le=65535)
+    git_executable: str = "git"
+    git_clone_timeout_seconds: int = Field(default=300, ge=1, le=3600)
+    git_command_timeout_seconds: int = Field(default=300, ge=1, le=3600)
+    max_repository_size_mb: int = Field(default=200, ge=1, le=10_240)
+    max_file_count: int = Field(default=5_000, ge=1, le=1_000_000)
+    max_single_file_size_mb: int = Field(default=2, ge=1, le=1_024)
+    max_total_scan_size_mb: int = Field(default=50, ge=1, le=10_240)
+    static_tool_timeout_seconds: int = Field(default=120, ge=1, le=3600)
+    static_tool_output_limit_bytes: int = Field(default=5 * 1024 * 1024, ge=1024)
+    max_tool_findings: int = Field(default=1_000, ge=1, le=1_000_000)
+    pytest_timeout_seconds: int = Field(default=300, ge=1, le=3600)
+    coverage_timeout_seconds: int = Field(default=300, ge=1, le=3600)
+    llm_timeout_seconds: int = Field(default=60, ge=1, le=600)
+    llm_max_input_chars: int = Field(default=60_000, ge=1)
+    llm_max_output_tokens: int = Field(default=2_000, ge=1, le=100_000)
+    llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    llm_max_finding_proposals: int = Field(default=50, ge=1, le=10_000)
+    trusted_fixture_name: str = "trusted_fixture_v1"
+    keep_workspace_on_failure: bool = False
+    workspace_root: str | None = None
+
     @field_validator(
         "llm_base_url",
         "llm_api_key",
         "llm_model",
+        "workspace_root",
         mode="before",
     )
     @classmethod
@@ -53,11 +79,33 @@ class Settings(BaseSettings):
             return None
         return value
 
-    @field_validator("app_name", "app_env", "llm_provider")
+    @field_validator(
+        "app_name",
+        "app_env",
+        "llm_provider",
+        "github_allowed_host",
+        "git_executable",
+        "trusted_fixture_name",
+    )
     @classmethod
     def _required_non_empty(cls, value: str, info: Any) -> str:
         if not value.strip():
             raise ValueError(f"{info.field_name} must not be empty")
+        return value
+
+    @field_validator("github_allowed_host")
+    @classmethod
+    def _only_github_host(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized != "github.com":
+            raise ValueError("github_allowed_host must be exactly 'github.com'")
+        return normalized
+
+    @field_validator("github_allowed_port")
+    @classmethod
+    def _only_https_port(cls, value: int) -> int:
+        if value != 443:
+            raise ValueError("github_allowed_port must be 443")
         return value
 
     @field_validator("log_level")
