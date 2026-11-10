@@ -1,0 +1,10 @@
+{
+  "files": {
+    "README.md": "dde65138fb8ed5e89d8b90cbb7a88442e5fed345716a2162c5a8ec2ced37be47",
+    "calc/__init__.py": "5b55f151a63a419c39d8aaad9b7c8afd7a659edda689a3d5f3888397a57fa104",
+    "calc/core.py": "951533072e030a0c0649a3211436558c477c98fc887c935209c63c33454875c7",
+    "tests/test_core.py": "6cdd4ed9fee7210c7505d16fb3debe2fa858673df8a52e30b01883be640f4d71"
+  },
+  "fixture_name": "trusted_fixture_v1",
+  "version": "1.0.0"
+}

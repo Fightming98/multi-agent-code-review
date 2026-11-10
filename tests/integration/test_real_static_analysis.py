@@ -19,6 +19,16 @@ from src.code_review.tools.radon_tool import RadonTool
 from src.code_review.tools.repository_inspector import RepositoryInspector
 from src.code_review.tools.repository_manager import RepositoryManager
 from src.code_review.tools.ruff_tool import RuffTool
+from src.code_review.tools.test_runner import (
+    TestExecutionStatus as ExecutionStatus,
+)
+from src.code_review.tools.test_runner import (
+    TestRunner as Runner,
+)
+from src.code_review.tools.workspace_snapshot import (
+    compare_snapshots,
+    snapshot_workspace,
+)
 
 REPOSITORY_URL = "https://github.com/pallets/itsdangerous"
 BRANCH = "main"
@@ -60,6 +70,7 @@ def test_real_repository_static_analysis(tmp_path: Path) -> None:
 
     with RepositoryManager(settings) as manager:
         snapshot = manager.clone(REPOSITORY_URL, branch=BRANCH)
+        before_analysis = snapshot_workspace(snapshot.workspace_path)
         inventory = RepositoryInspector(settings).inspect(
             snapshot.workspace_path
         )
@@ -111,7 +122,26 @@ def test_real_repository_static_analysis(tmp_path: Path) -> None:
                 assert ".." not in path.parts
                 assert finding.file_path in known_paths
 
-        # 阶段 1 不执行被评审仓库的任何脚本或测试。
+        # 阶段 1 不执行被评审仓库的任何脚本或测试；外部仓库必须保持
+        # ``not_executed``，且工具与测试判定都不得写入工作区。
+        execution = Runner(settings).execute(trusted_fixture=None)
+        assert execution.status is ExecutionStatus.NOT_EXECUTED
+        assert execution.summary.execution_status == "not_executed"
+        assert execution.summary.passed is None
+        assert execution.summary.failed is None
+        assert execution.summary.skipped is None
+        assert execution.summary.coverage is None
+        assert execution.summary.source is None
+        assert execution.summary.reason
+        assert execution.read_only_verified is None
+        assert execution.error is None
+
+        after_analysis = snapshot_workspace(snapshot.workspace_path)
+        diff = compare_snapshots(before_analysis, after_analysis)
+        assert diff.changed is False, diff.paths
+
         assert not (snapshot.workspace_path / ".pytest_cache").exists()
+        assert not any(snapshot.workspace_path.rglob("__pycache__"))
+        assert not any(snapshot.workspace_path.rglob("*.pyc"))
 
     assert list((tmp_path / "workspaces").iterdir()) == []
