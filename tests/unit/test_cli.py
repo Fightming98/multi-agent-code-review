@@ -8,8 +8,8 @@ from typing import ClassVar
 
 import pytest
 
-from src.code_review import cli
-from src.code_review.services.review_service import (
+from code_review import cli
+from code_review.services.review_service import (
     ReviewOutcome,
     ReviewRequest,
     ReviewServiceError,

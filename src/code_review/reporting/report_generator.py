@@ -628,6 +628,27 @@ def _sanitize_value(value: Any, workspace_path: Path | None) -> Any:
     return value
 
 
+def _add_path_replacement(
+    replacements: list[tuple[str, str]], raw: str, replacement: str
+) -> None:
+    """登记路径替换，同时覆盖 JSON 字符串中被转义的 Windows 路径。
+
+    工具 stdout / stderr 往往是嵌套的 JSON 字符串；写入产物时主机路径会
+    再次被转义，形成 ``C:\\\\Users\\\\...``。仅替换单反斜杠形式无法清除
+    这类路径，因此按层补充转义变体。
+    """
+    if not raw:
+        return
+    variants = {raw}
+    escaped = raw
+    if "\\" in raw:
+        for _ in range(3):
+            escaped = escaped.replace("\\", "\\\\")
+            variants.add(escaped)
+    for variant in variants:
+        replacements.append((variant, replacement))
+
+
 def _sanitize_text(text: str, workspace_path: Path | None) -> str:
     replacements: list[tuple[str, str]] = []
     if workspace_path is not None:
@@ -635,17 +656,21 @@ def _sanitize_text(text: str, workspace_path: Path | None) -> str:
             workspace = Path(workspace_path).expanduser().resolve()
         except OSError:
             workspace = Path(workspace_path)
-        replacements.append((str(workspace), "<workspace>"))
-        replacements.append((workspace.as_posix(), "<workspace>"))
+        _add_path_replacement(replacements, str(workspace), "<workspace>")
+        _add_path_replacement(
+            replacements, workspace.as_posix(), "<workspace>"
+        )
     try:
-        replacements.append((str(Path.home()), "<home>"))
-        replacements.append((Path.home().as_posix(), "<home>"))
+        _add_path_replacement(replacements, str(Path.home()), "<home>")
+        _add_path_replacement(replacements, Path.home().as_posix(), "<home>")
     except (OSError, RuntimeError):
         pass
     try:
-        replacements.append((str(Path(tempfile.gettempdir())), "<temp>"))
-        replacements.append(
-            (Path(tempfile.gettempdir()).as_posix(), "<temp>")
+        _add_path_replacement(
+            replacements, str(tempfile.gettempdir()), "<temp>"
+        )
+        _add_path_replacement(
+            replacements, Path(tempfile.gettempdir()).as_posix(), "<temp>"
         )
     except (OSError, RuntimeError):
         pass

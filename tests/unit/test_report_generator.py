@@ -9,22 +9,22 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from src.code_review.reporting.artifact_models import (
+from code_review.reporting.artifact_models import (
     MetadataArtifact,
     StaticAnalysisArtifact,
 )
-from src.code_review.reporting.artifact_models import (
+from code_review.reporting.artifact_models import (
     TestReportArtifact as ReportArtifact,
 )
-from src.code_review.reporting.report_generator import (
+from code_review.reporting.report_generator import (
     ReportGenerationError,
     ReportGenerator,
     ReportOutputError,
 )
-from src.code_review.schemas.task import ErrorInfo
-from src.code_review.services.llm_analyzer import LLMAnalysisStatus
-from src.code_review.tools.base import ToolExecutionStatus
-from src.code_review.tools.test_runner import TestExecutionStatus as ExecutionStatus
+from code_review.schemas.task import ErrorInfo
+from code_review.services.llm_analyzer import LLMAnalysisStatus
+from code_review.tools.base import ToolExecutionStatus
+from code_review.tools.test_runner import TestExecutionStatus as ExecutionStatus
 from tests.stage1_helpers import (
     FIXTURE_MANIFEST_SHA,
     NOW,
@@ -246,6 +246,51 @@ def test_artifacts_are_sanitized_for_paths_and_secrets(
     static_text = texts[1]
     assert "<workspace>" in static_text
     assert "[REDACTED]" in static_text
+
+
+def test_artifacts_sanitize_escaped_windows_paths_in_tool_output(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    # 工具 stdout 通常是嵌套 JSON 字符串，写入产物后主机路径会被再次转义。
+    nested_stdout = json.dumps(
+        {
+            "workspace_file": str(workspace / "pkg" / "app.py"),
+            "home_file": str(Path.home() / "private" / "key.py"),
+            "temp_file": str(Path(tempfile.gettempdir()) / "scratch.py"),
+        }
+    )
+    tool_results = (
+        make_tool_result(
+            "ruff",
+            status=ToolExecutionStatus.FINDINGS,
+            findings=(make_tool_finding(),),
+            stdout=nested_stdout,
+        ),
+        make_tool_result("bandit"),
+        make_tool_result("radon"),
+    )
+    aggregation = make_aggregation(tool_results, (make_finding(),))
+    artifacts = generate(
+        tmp_path,
+        workspace_path=workspace,
+        tool_results=tool_results,
+        aggregation=aggregation,
+        llm_analysis=make_llm_result(aggregation.findings),
+    )
+
+    static_text = artifacts.static_analysis_path.read_text(encoding="utf-8")
+    assert "<workspace>" in static_text
+    assert "<home>" in static_text
+    assert "<temp>" in static_text
+    for leaked in (
+        str(workspace),
+        str(Path.home()),
+        str(tempfile.gettempdir()),
+    ):
+        assert leaked not in static_text
+        assert leaked.replace("\\", "\\\\") not in static_text
 
 
 def test_finding_evidence_pointers_resolve_in_static_analysis(

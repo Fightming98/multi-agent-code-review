@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from src.code_review.schemas import AgentResult, Finding, ToolEvidence
+from code_review.schemas import AgentResult, Finding, ToolEvidence
 
 COMMIT_SHA = "9fceb02d0ae598e95dc970b74767f19372d61af8"
 

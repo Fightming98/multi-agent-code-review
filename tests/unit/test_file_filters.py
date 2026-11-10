@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.code_review.tools.file_filters import (
+from code_review.tools.file_filters import (
     FileCategory,
     FileFilterPolicy,
     classify_path,

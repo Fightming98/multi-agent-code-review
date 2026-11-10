@@ -13,9 +13,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-import src.code_review.api.app as api_app
-from src.code_review.api.app import create_app
-from src.code_review.services.review_service import (
+import code_review.api.app as api_app
+from code_review.api.app import create_app
+from code_review.services.review_service import (
     ReviewOutcome,
     ReviewRequest,
     ReviewServiceError,

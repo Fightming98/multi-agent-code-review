@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.code_review.tools.workspace_snapshot import (
+from code_review.tools.workspace_snapshot import (
     WorkspaceSnapshotError,
     compare_snapshots,
     snapshot_workspace,

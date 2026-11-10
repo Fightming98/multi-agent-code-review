@@ -5,14 +5,14 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from src.code_review.reporting.markdown_renderer import render_markdown
-from src.code_review.reporting.report_generator import ReportGenerator
-from src.code_review.services.llm_analyzer import (
+from code_review.reporting.markdown_renderer import render_markdown
+from code_review.reporting.report_generator import ReportGenerator
+from code_review.services.llm_analyzer import (
     LLMAnalysisStatus,
     LLMRejectedProposal,
 )
-from src.code_review.tools.base import ToolExecutionStatus
-from src.code_review.tools.test_runner import TestExecutionStatus as ExecutionStatus
+from code_review.tools.base import ToolExecutionStatus
+from code_review.tools.test_runner import TestExecutionStatus as ExecutionStatus
 from tests.stage1_helpers import (
     FIXTURE_MANIFEST_SHA,
     NOW,

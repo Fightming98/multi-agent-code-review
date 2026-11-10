@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.code_review.tools.process_runner import ProcessStatus, run_process
+from code_review.tools.process_runner import ProcessStatus, run_process
 
 
 def test_run_process_captures_output_and_exit_code(tmp_path: Path) -> None:

@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
+from code_review.tools.repository_manager import RepositoryManager
+from code_review.tools.url_validator import is_full_commit_sha
 from config.settings import Settings
-from src.code_review.tools.repository_manager import RepositoryManager
-from src.code_review.tools.url_validator import is_full_commit_sha
 
 REPOSITORY_URL = "https://github.com/pallets/itsdangerous"
 BRANCH = "main"

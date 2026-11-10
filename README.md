@@ -3,9 +3,10 @@
 输入一个 GitHub 仓库 URL，由 Manager Agent 规划任务，Security / Quality / Performance / Testing
 四个专业 Agent 并行审查，最终由 Final Reviewer 完成证据核验、去重、评分并生成结构化审查报告。
 
-> 当前进度：**阶段 1（单 Agent 工程基础）**。Stage 1.1～Stage 1.6 已实现，Stage 1.6
-> 测试证据待人工验收；尚未进入 Stage 1.7 全链路验收。阶段 1 仍为单进程、非 Agent
-> 流水线，不包含 LangGraph、多 Agent、Redis/ARQ 或 ReviewReport 四维评分。
+> 当前进度：**阶段 1（单 Agent 工程基础）**。Stage 1.1～Stage 1.7 已实现，
+> Stage 1.7 全链路验收证据待人工审核；尚未提交 Stage 1.7，也未进入阶段 2。
+> 阶段 1 仍为单进程、非 Agent 流水线，不包含 LangGraph、多 Agent、Redis/ARQ
+> 或 ReviewReport 四维评分。
 
 ## 技术栈（阶段 1）
 
@@ -40,10 +41,17 @@ conda env create -f environment.yml
 ```bash
 pytest tests/unit -v
 pytest tests/integration -q -m "not real_network and not llm_smoke"
+
+# 真实 GitHub Clone（需要网络）
+RUN_REAL_NETWORK=1 pytest tests/integration -q -m real_network
+
+# 真实模型冒烟（需要 .env 中配置 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL）
+RUN_LLM_SMOKE=1 pytest tests/integration/test_llm_smoke.py -q -s
 ```
 
 阶段 1 要求阶段 0 回归与新增单元测试全部通过；常规单元测试不联网、不调用真实 LLM。
-可信 Fixture 之外的仓库不会在宿主机执行测试。
+真实网络与真实模型测试默认不运行，必须显式设置环境变量。可信 Fixture 之外的仓库
+不会在宿主机执行测试。
 
 ## CLI 与 API
 
@@ -78,6 +86,21 @@ reports/<review_id>/
 - 仓库内容视为不可信数据；报告与 LLM 输入不包含 `.env`、密钥、令牌或宿主机路径。
 - 所有阶段 1 Finding 的 `agent_name` 为 `Stage1Analyzer`，`verification_status` 为
   `unverified`；LLM 不合格提案只进入 `llm_analysis.rejected[]`。
+
+## 已知限制
+
+- 阶段 1 为单进程同步执行；FastAPI 入口仅用于本地受控演示与接口测试，不适合承载
+  长时间或高并发审查。
+- 外部 GitHub 仓库只做静态分析与 LLM 解读，测试与覆盖率状态固定为 `not_executed`；
+  不自动安装依赖，不执行 `setup.py`、`build.py` 或任何安装/构建脚本。
+- 阶段 1 不生成 `report.json`，不实现 `ReviewReport`、四维评分或 Final Reviewer；
+  这些属于阶段 2 及以后。
+- LLM 分析依赖外部 Provider 的可用性；超时或失败时保留确定性工具结果，审查状态
+  标记为 `partial`，不会用模型结果替代工具证据。
+- Windows 宿主机默认不允许创建符号链接，4 条符号链接相关单元测试会跳过；这些
+  跳过不影响其他平台或阶段 1 验收结论。
+- 产物中的主机路径、工作区路径与密钥样式文本已脱敏；工具 stdout/stderr 仍可能包含
+  被截断的代码片段，报告使用前应按组织的数据分级要求处理。
 
 ## 当前目录
 

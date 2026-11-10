@@ -10,15 +10,15 @@ from xml.sax.saxutils import escape
 import pytest
 
 from code_review.schemas.report import TestSummary as ContractTestSummary
-from config.settings import Settings
-from src.code_review.tools.process_runner import ProcessResult, ProcessStatus
-from src.code_review.tools.test_runner import (
+from code_review.tools.process_runner import ProcessResult, ProcessStatus
+from code_review.tools.test_runner import (
     TestExecutionStatus as ExecutionStatus,
 )
-from src.code_review.tools.test_runner import (
+from code_review.tools.test_runner import (
     TestRunner as Runner,
 )
-from src.code_review.tools.trusted_fixture import verify_trusted_fixture
+from code_review.tools.trusted_fixture import verify_trusted_fixture
+from config.settings import Settings
 from tests.fixture_factory import make_trusted_fixture
 
 FIXTURE_FILES = {

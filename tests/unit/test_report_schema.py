@@ -15,9 +15,9 @@ from datetime import timedelta
 import pytest
 from pydantic import ValidationError
 
-from src.code_review.schemas import ReviewReport
-from src.code_review.schemas import TestSummary as TestSummaryModel
-from src.code_review.schemas.report import DimensionScore
+from code_review.schemas import ReviewReport
+from code_review.schemas import TestSummary as TestSummaryModel
+from code_review.schemas.report import DimensionScore
 
 COMMIT_SHA = "9fceb02d0ae598e95dc970b74767f19372d61af8"
 OTHER_COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567"
@@ -956,14 +956,14 @@ def test_document_not_executed_test_summary_validates():
 
 
 def test_all_contract_field_names_are_snake_case_JS_02():
-    from src.code_review.schemas import (
+    from code_review.schemas import (
         AgentResult,
         AgentTask,
         ErrorInfo,
         Finding,
         ToolEvidence,
     )
-    from src.code_review.schemas.report import (
+    from code_review.schemas.report import (
         CostSummary,
         ExecutionSummary,
     )

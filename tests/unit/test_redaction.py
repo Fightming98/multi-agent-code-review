@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.code_review.services.redaction import REDACTED, redact_sensitive_text
+from code_review.services.redaction import REDACTED, redact_sensitive_text
 
 
 def test_quoted_secret_is_redacted_and_key_name_is_kept() -> None:

@@ -14,25 +14,25 @@ from types import SimpleNamespace
 
 import pytest
 
-import src.code_review.services.review_service as review_service_module
-from src.code_review.reporting.report_generator import ReportGenerationError
-from src.code_review.services.llm_analyzer import LLMAnalysisStatus
-from src.code_review.services.review_service import (
+import code_review.services.review_service as review_service_module
+from code_review.reporting.report_generator import ReportGenerationError
+from code_review.services.llm_analyzer import LLMAnalysisStatus
+from code_review.services.review_service import (
     ReviewRequest,
     ReviewService,
     ReviewServiceError,
 )
-from src.code_review.tools.file_filters import FileCategory
-from src.code_review.tools.repository_inspector import (
+from code_review.tools.file_filters import FileCategory
+from code_review.tools.repository_inspector import (
     RepositoryFile,
     RepositoryInventory,
 )
-from src.code_review.tools.repository_manager import (
+from code_review.tools.repository_manager import (
     CloneError,
     GitNotFoundError,
     RepositorySnapshot,
 )
-from src.code_review.tools.test_runner import TestExecutionStatus as ExecutionStatus
+from code_review.tools.test_runner import TestExecutionStatus as ExecutionStatus
 from config.settings import Settings
 from tests.stage1_helpers import (
     COMMIT_SHA,

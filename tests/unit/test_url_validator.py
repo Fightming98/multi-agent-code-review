@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.code_review.tools.url_validator import (
+from code_review.tools.url_validator import (
     URLValidationError,
     is_full_commit_sha,
     normalize_commit_sha,

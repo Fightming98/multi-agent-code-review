@@ -11,16 +11,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from src.code_review.services.finding_aggregator import aggregate_review_results
-from src.code_review.services.llm_analyzer import (
+from code_review.services.finding_aggregator import aggregate_review_results
+from code_review.services.llm_analyzer import (
     LLMAnalysisStatus,
     LLMAnalyzer,
 )
-from src.code_review.services.llm_client import LLMClientError, LLMCompletion
-from src.code_review.tools.bandit_tool import BanditTool
-from src.code_review.tools.base import ToolExecutionStatus
-from src.code_review.tools.radon_tool import RadonTool
-from src.code_review.tools.ruff_tool import RuffTool
+from code_review.services.llm_client import LLMClientError, LLMCompletion
+from code_review.tools.bandit_tool import BanditTool
+from code_review.tools.base import ToolExecutionStatus
+from code_review.tools.radon_tool import RadonTool
+from code_review.tools.ruff_tool import RuffTool
 from config.settings import Settings
 
 APP_TEXT = """import os

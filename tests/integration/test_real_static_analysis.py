@@ -12,23 +12,23 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from config.settings import Settings
-from src.code_review.tools.bandit_tool import BanditTool
-from src.code_review.tools.base import ToolExecutionResult, ToolExecutionStatus
-from src.code_review.tools.radon_tool import RadonTool
-from src.code_review.tools.repository_inspector import RepositoryInspector
-from src.code_review.tools.repository_manager import RepositoryManager
-from src.code_review.tools.ruff_tool import RuffTool
-from src.code_review.tools.test_runner import (
+from code_review.tools.bandit_tool import BanditTool
+from code_review.tools.base import ToolExecutionResult, ToolExecutionStatus
+from code_review.tools.radon_tool import RadonTool
+from code_review.tools.repository_inspector import RepositoryInspector
+from code_review.tools.repository_manager import RepositoryManager
+from code_review.tools.ruff_tool import RuffTool
+from code_review.tools.test_runner import (
     TestExecutionStatus as ExecutionStatus,
 )
-from src.code_review.tools.test_runner import (
+from code_review.tools.test_runner import (
     TestRunner as Runner,
 )
-from src.code_review.tools.workspace_snapshot import (
+from code_review.tools.workspace_snapshot import (
     compare_snapshots,
     snapshot_workspace,
 )
+from config.settings import Settings
 
 REPOSITORY_URL = "https://github.com/pallets/itsdangerous"
 BRANCH = "main"

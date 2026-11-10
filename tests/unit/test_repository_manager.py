@@ -14,8 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from config.settings import Settings
-from src.code_review.tools.repository_manager import (
+from code_review.tools.repository_manager import (
     CloneError,
     CommitResolutionError,
     GitClient,
@@ -26,7 +25,8 @@ from src.code_review.tools.repository_manager import (
     RepositoryManager,
     ResourceLimitExceededError,
 )
-from src.code_review.tools.url_validator import URLValidationError
+from code_review.tools.url_validator import URLValidationError
+from config.settings import Settings
 
 FULL_SHA = "9fceb02d0ae598e95dc970b74767f19372d61af8"
 OTHER_SHA = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"

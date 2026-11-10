@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from src.code_review.reporting.artifact_models import (
+from code_review.reporting.artifact_models import (
     CoverageArtifact,
     ExecutionEnvironmentArtifact,
     FixtureArtifact,
@@ -19,16 +19,16 @@ from src.code_review.reporting.artifact_models import (
     StaticAnalysisStatisticsArtifact,
     ToolRunArtifact,
 )
-from src.code_review.reporting.artifact_models import (
+from code_review.reporting.artifact_models import (
     TestCountsArtifact as CountsArtifact,
 )
-from src.code_review.reporting.artifact_models import (
+from code_review.reporting.artifact_models import (
     TestReferenceArtifact as ReferenceArtifact,
 )
-from src.code_review.reporting.artifact_models import (
+from code_review.reporting.artifact_models import (
     TestReferenceEntryArtifact as ReferenceEntryArtifact,
 )
-from src.code_review.reporting.artifact_models import (
+from code_review.reporting.artifact_models import (
     TestReportArtifact as ReportArtifact,
 )
 from tests.stage1_helpers import (

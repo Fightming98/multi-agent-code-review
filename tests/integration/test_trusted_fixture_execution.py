@@ -10,17 +10,17 @@ from pathlib import Path
 
 import pytest
 
-from config.settings import Settings
-from src.code_review.tools.test_runner import (
+from code_review.tools.test_runner import (
     TestExecutionStatus as ExecutionStatus,
 )
-from src.code_review.tools.test_runner import (
+from code_review.tools.test_runner import (
     TestRunner as Runner,
 )
-from src.code_review.tools.trusted_fixture import (
+from code_review.tools.trusted_fixture import (
     DEFAULT_TRUSTED_FIXTURE_ROOT,
     verify_trusted_fixture,
 )
+from config.settings import Settings
 from tests.fixture_factory import make_trusted_fixture
 
 TRUSTED_FIXTURE = "trusted_fixture_v1"

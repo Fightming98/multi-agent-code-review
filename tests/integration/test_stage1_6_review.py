@@ -13,19 +13,19 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from src.code_review.reporting.report_generator import ReportGenerator
-from src.code_review.services.finding_aggregator import AggregationResult
-from src.code_review.services.llm_analyzer import LLMAnalysisResult
-from src.code_review.services.review_service import (
+from code_review.reporting.report_generator import ReportGenerator
+from code_review.services.finding_aggregator import AggregationResult
+from code_review.services.llm_analyzer import LLMAnalysisResult
+from code_review.services.review_service import (
     ReviewRequest,
     ReviewService,
 )
-from src.code_review.tools.bandit_tool import BanditTool
-from src.code_review.tools.radon_tool import RadonTool
-from src.code_review.tools.repository_inspector import RepositoryInspector
-from src.code_review.tools.repository_manager import RepositorySnapshot
-from src.code_review.tools.ruff_tool import RuffTool
-from src.code_review.tools.test_runner import TestRunner as PytestRunner
+from code_review.tools.bandit_tool import BanditTool
+from code_review.tools.radon_tool import RadonTool
+from code_review.tools.repository_inspector import RepositoryInspector
+from code_review.tools.repository_manager import RepositorySnapshot
+from code_review.tools.ruff_tool import RuffTool
+from code_review.tools.test_runner import TestRunner as PytestRunner
 from config.settings import Settings
 from tests.stage1_helpers import (
     COMMIT_SHA,
@@ -241,7 +241,7 @@ def test_trusted_fixture_review_executes_tests_and_marks_source(
     assert "不伪造 Git Commit" in report
     assert "不代表对外部仓库执行了测试" in report
 
-    from src.code_review.tools.trusted_fixture import DEFAULT_TRUSTED_FIXTURE_ROOT
+    from code_review.tools.trusted_fixture import DEFAULT_TRUSTED_FIXTURE_ROOT
 
     fixture = DEFAULT_TRUSTED_FIXTURE_ROOT
     assert not any(
@@ -252,9 +252,9 @@ def test_trusted_fixture_review_executes_tests_and_marks_source(
 
 
 def test_cli_and_api_import_the_same_review_service() -> None:
-    import src.code_review.api.app as api_app
-    from src.code_review import cli
-    from src.code_review.services.review_service import ReviewService
+    import code_review.api.app as api_app
+    from code_review import cli
+    from code_review.services.review_service import ReviewService
 
     assert cli.ReviewService is ReviewService
     assert api_app.ReviewService is ReviewService

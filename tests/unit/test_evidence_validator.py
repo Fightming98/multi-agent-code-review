@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.code_review.services.evidence_validator import (
+from code_review.services.evidence_validator import (
     CodeEvidenceValidator,
     EvidenceValidationConfigurationError,
 )

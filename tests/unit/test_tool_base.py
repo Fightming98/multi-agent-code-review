@@ -10,16 +10,16 @@ from pathlib import Path
 
 import pytest
 
-from config.settings import Settings
-from src.code_review.schemas.task import ErrorInfo
-from src.code_review.tools.base import (
+from code_review.schemas.task import ErrorInfo
+from code_review.tools.base import (
     AnalysisTool,
     ToolExecutionResult,
     ToolExecutionStatus,
     ToolFinding,
 )
-from src.code_review.tools.process_runner import ProcessResult, ProcessStatus
-from src.code_review.tools.ruff_tool import RuffTool
+from code_review.tools.process_runner import ProcessResult, ProcessStatus
+from code_review.tools.ruff_tool import RuffTool
+from config.settings import Settings
 
 
 class _NoopTool(AnalysisTool):

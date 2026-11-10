@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from src.code_review.tools.trusted_fixture import (
+from code_review.tools.trusted_fixture import (
     DEFAULT_TRUSTED_FIXTURE_ROOT,
     FIXTURE_MANIFEST_FILENAME,
     TrustedFixtureError,

@@ -7,7 +7,7 @@ import json
 import httpx
 import pytest
 
-from src.code_review.services.llm_client import (
+from code_review.services.llm_client import (
     LLMClientError,
     OpenAICompatibleClient,
 )

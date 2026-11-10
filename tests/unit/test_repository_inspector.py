@@ -8,17 +8,17 @@ from pathlib import Path
 
 import pytest
 
-from config.settings import Settings
-from src.code_review.tools.file_filters import (
+from code_review.tools.file_filters import (
     FileCategory,
     FileFilterPolicy,
     FilterReason,
 )
-from src.code_review.tools.repository_inspector import (
+from code_review.tools.repository_inspector import (
     TOTAL_SCAN_LIMIT_REASON,
     RepositoryInspectionError,
     RepositoryInspector,
 )
+from config.settings import Settings
 
 
 def write_file(root: Path, relative: str, content: bytes | str) -> Path:

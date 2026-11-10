@@ -8,15 +8,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from config.settings import Settings
-from src.code_review.tools.bandit_tool import BanditTool
-from src.code_review.tools.base import ToolExecutionStatus
-from src.code_review.tools.radon_tool import RadonTool
-from src.code_review.tools.ruff_tool import RuffTool
-from src.code_review.tools.workspace_snapshot import (
+from code_review.tools.bandit_tool import BanditTool
+from code_review.tools.base import ToolExecutionStatus
+from code_review.tools.radon_tool import RadonTool
+from code_review.tools.ruff_tool import RuffTool
+from code_review.tools.workspace_snapshot import (
     compare_snapshots,
     snapshot_workspace,
 )
+from config.settings import Settings
 from tests.fixture_factory import copy_trusted_fixture
 
 ANALYZED_FILES = [

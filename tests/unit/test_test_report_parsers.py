@@ -8,10 +8,10 @@ from xml.sax.saxutils import escape
 
 import pytest
 
-from src.code_review.tools.test_runner import (
+from code_review.tools.test_runner import (
     TestReportParseError as ReportParseError,
 )
-from src.code_review.tools.test_runner import (
+from code_review.tools.test_runner import (
     parse_coverage_json,
     parse_junit_xml,
 )

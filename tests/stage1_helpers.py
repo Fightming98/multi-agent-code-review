@@ -10,28 +10,28 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from src.code_review.reporting.report_generator import (
+from code_review.reporting.report_generator import (
     InventorySummary,
     ReviewArtifactInput,
 )
-from src.code_review.schemas.report import TestSummary
-from src.code_review.schemas.result import Finding, ToolEvidence
-from src.code_review.schemas.task import ErrorInfo
-from src.code_review.services.finding_aggregator import (
+from code_review.schemas.report import TestSummary
+from code_review.schemas.result import Finding, ToolEvidence
+from code_review.schemas.task import ErrorInfo
+from code_review.services.finding_aggregator import (
     AggregationResult,
     AggregationStats,
     ToolAggregateSummary,
 )
-from src.code_review.services.llm_analyzer import (
+from code_review.services.llm_analyzer import (
     LLMAnalysisResult,
     LLMAnalysisStatus,
 )
-from src.code_review.tools.base import (
+from code_review.tools.base import (
     ToolExecutionResult,
     ToolExecutionStatus,
     ToolFinding,
 )
-from src.code_review.tools.test_runner import (
+from code_review.tools.test_runner import (
     CoverageFileReport,
     TestExecutionResult,
     TestExecutionStatus,

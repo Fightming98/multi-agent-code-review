@@ -8,14 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from config.settings import Settings
-from src.code_review.tools.base import ToolExecutionStatus, ToolOutputParseError
-from src.code_review.tools.process_runner import ProcessResult, ProcessStatus
-from src.code_review.tools.radon_tool import (
+from code_review.tools.base import ToolExecutionStatus, ToolOutputParseError
+from code_review.tools.process_runner import ProcessResult, ProcessStatus
+from code_review.tools.radon_tool import (
     RadonTool,
     parse_radon_cc_output,
     parse_radon_mi_output,
 )
+from config.settings import Settings
 
 
 def settings(**overrides: object) -> Settings:

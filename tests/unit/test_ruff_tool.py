@@ -8,13 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from config.settings import Settings
-from src.code_review.tools.base import (
+from code_review.tools.base import (
     ToolExecutionStatus,
     ToolOutputParseError,
 )
-from src.code_review.tools.process_runner import ProcessResult, ProcessStatus
-from src.code_review.tools.ruff_tool import RuffTool, parse_ruff_output
+from code_review.tools.process_runner import ProcessResult, ProcessStatus
+from code_review.tools.ruff_tool import RuffTool, parse_ruff_output
+from config.settings import Settings
 
 
 def settings(**overrides: object) -> Settings:
