@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     llm_max_finding_proposals: int = Field(default=50, ge=1, le=10_000)
     trusted_fixture_name: str = "trusted_fixture_v1"
+    review_output_root: str = "reports"
     keep_workspace_on_failure: bool = False
     workspace_root: str | None = None
 
@@ -90,6 +91,7 @@ class Settings(BaseSettings):
         "github_allowed_host",
         "git_executable",
         "trusted_fixture_name",
+        "review_output_root",
     )
     @classmethod
     def _required_non_empty(cls, value: str, info: Any) -> str:
