@@ -1,0 +1,54 @@
+# Stage 2 评分与严重级别规则
+#
+# 本文件是唯一的评分/阈值配置来源。Agent 不得在代码中硬编码这些值。
+# 权重必须满足 0 < w <= 1 且总和为 1；非法配置由 config/review_rules.py 报错，
+# 不做静默归一化或修正。
+
+schema_version: "1.0"
+
+weights:
+  security: 0.35
+  quality: 0.25
+  performance: 0.20
+  testing: 0.20
+
+deductions:
+  critical: 25
+  high: 15
+  medium: 5
+  low: 2
+  info: 0
+
+verdict:
+  approve_min_score: 80
+  request_changes_below: 60
+
+testing:
+  min_coverage_percent: 80
+
+complexity:
+  high_rank: "D"
+  very_high_rank: "E"
+
+# 工具原始严重级别 -> Finding 严重级别。
+# B107/B608 等具体规则不在此处预设 critical；严重级别只能来自工具输出和本映射。
+severity_mapping:
+  bandit:
+    HIGH: high
+    MEDIUM: medium
+    LOW: low
+  radon:
+    A: info
+    B: info
+    C: low
+    D: medium
+    E: high
+    F: high
+  testing:
+    test_failure: medium
+    low_coverage: medium
+    missing_tests: low
+  ruff:
+    error: medium
+    warning: low
+    fatal: high

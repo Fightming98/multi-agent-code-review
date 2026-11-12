@@ -17,6 +17,9 @@ env/
 .vscode/
 
 # reports/*
+# reports/stage0/、reports/stage1/ 的验收记录纳入版本控制；
+# 真实第三方仓库评审产物含第三方代码片段与原始工具输出，仅保留本地。
+reports/stage1-*/
 Prompt/*
 
 *.log
