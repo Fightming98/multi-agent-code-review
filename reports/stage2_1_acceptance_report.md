@@ -444,7 +444,7 @@ All checks passed!
 ## 10. 已知限制与风险
 
 1. **`CLAUDE.md` 已更新（审计 G-2 关闭）**：2026-11-12 按负责人要求更新，已反映阶段 1 完成、Stage 2.1 完成、Stage 2.2 尚未开始、测试基线 1028 unit / 1039 full、`PYTHONUTF8=1` 命令、当前依赖与目录状态。
-2. **LLM 冒烟测试未执行**：按负责人 2026-11-12 裁定，真实 LLM 冒烟测试与 Fake 冒烟测试均留待 Stage 2.2–2.4；本阶段单元测试继续使用 Fake/Mock 作为测试替身，不发起真实网络调用。
+2. **LLM 冒烟测试未执行**：按负责人 2026-11-12 裁定，Stage 2.1 不执行真实 LLM 冒烟；Fake/Mock 仅作为单元测试替身，不发起真实网络调用；真实 LLM 冒烟需负责人单独批准、不纳入默认验收；Fake LLM 完整 E2E 在 Stage 2.6。
 3. **无具体 Agent/Manager**：Prompt 文件与合同已就绪，但 `SecurityAgent` 等未实现；Stage 2.2 才创建。
 4. **无 V5 证据校验**：`ArtifactData.resolve()` 已实现，但 Final Reviewer 的 V5 校验和“内存/落盘一致性”测试属于 Stage 2.4。
 5. **BaseAgent 未实现超时**：Stage 2.3 的图节点/调度层负责超时与并发；本阶段只做生命周期与异常隔离。
@@ -473,7 +473,7 @@ All checks passed!
 负责人裁定（2026-11-12）：
 
 - `CLAUDE.md` 已更新，审计 G-2 关闭；
-- 真实与 Fake LLM 冒烟测试统一留待 Stage 2.2–2.4；
+- 本阶段不执行真实 LLM 冒烟；Fake/Mock 仅用于单元测试；真实 LLM 冒烟需负责人单独批准、不纳入默认验收；Fake LLM 完整 E2E 在 Stage 2.6；
 - 继续遵守 Stage 2.2 前不安装 LangGraph、不开始 Manager/专业 Agent 实现的边界。
 
 ---
@@ -489,7 +489,7 @@ Stage 2.2 的前置条件是：
 - 保持 `environment.lock.yml` 不变；
 - 明确 `allowed_files` 与 `WorkerRuntime` 的 Manager 构造策略；
 - 不在 Stage 2.2 引入 LangGraph，不修改冻结 Schema/五份核心文档；
-- 真实与 Fake LLM 冒烟测试按负责人裁定留待 Stage 2.2–2.4，不在 Stage 2.2 强制启动真实网络调用。
+- 真实 LLM 冒烟需负责人单独批准、不纳入默认验收；Fake LLM 完整 E2E 在 Stage 2.6。
 
 本阶段到此停止，未执行 Stage 2.2。
 
@@ -500,7 +500,7 @@ Stage 2.2 的前置条件是：
 负责人对 Stage 2.1 交付提出并确认以下处理：
 
 1. **更新 `CLAUDE.md`**：已完成；当前阶段、测试基线、依赖、目录、文档地图与工作规则均已同步至 Stage 2.1。
-2. **LLM 冒烟测试**：真实 LLM 冒烟测试与 Fake 冒烟测试均不在 Stage 2.1 执行，统一留待 Stage 2.2–2.4；单元测试中的 Fake/Mock 仅作为测试替身保留。
+2. **LLM 冒烟测试**：Stage 2.1 不执行真实 LLM 冒烟；单元测试中的 Fake/Mock 仅作为测试替身保留；真实 LLM 冒烟需负责人单独批准、不纳入默认验收；Fake LLM 完整 E2E 在 Stage 2.6。
 3. **Git 整理**：将阶段 0/1 报告归档到 `reports/stage0/`、`reports/stage1/`，纳入 Stage 2.1 验收报告、Agent 基础设施、Prompt、规则与测试；使用显式路径提交，排除 `reports/stage1-<timestamp>/` 真实第三方产物，并为其增加忽略规则。未使用 `git add -A` / `git add .`。
 
 上述整理不改变本报告 §1–§9 的实现与测试证据。

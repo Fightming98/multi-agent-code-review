@@ -22,3 +22,5 @@ dependencies:
       - radon==6.0.1
       - coverage==7.17.2
       - pyyaml==6.0.3
+      # Stage 2.3：LangGraph 工作流（安装门禁已获负责人批准，2026-11-12）
+      - langgraph==1.2.19

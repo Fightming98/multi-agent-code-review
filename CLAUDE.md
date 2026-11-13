@@ -108,7 +108,7 @@ Stage 1 为线性单 Agent 流程，只生成四件产物（`metadata.json`、`s
 - LLM Provider 必须可替换，经 `config/settings.py` 注入，禁止在 agent 内硬编码；Stage 2.1 只定义 `LLMClientProtocol`，不创建真实客户端。
 - 一致性顺序：先保存结果 → 再更新状态 → 最后发布事件。
 - LangGraph 并行 worker 只返回自己的状态键（如 `{"security_result": ...}`）；`completed_tasks`/`failed_tasks` 等列表字段必须使用 `Annotated[list, operator.add]` reducer，否则 `InvalidUpdateError`。
-- 单元测试不得联网、不得调用真实 LLM（用 Mock/Fake）。Stage 2.1 不执行真实或 Fake 的 LLM 冒烟测试；真实 LLM 冒烟统一留待 Stage 2.2–2.4。
+- 单元测试不得联网、不得调用真实 LLM（用 Mock/Fake）。Stage 2.1 不执行真实 LLM 冒烟；Fake/Mock 仅用于单元测试；真实 LLM 冒烟需负责人单独批准、不纳入默认验收；Fake LLM 完整 E2E 在 Stage 2.6。
 - `BaseAgent` 只捕获 `Exception`（不捕获 `BaseException`），普通异常转换为合法的 failed `AgentResult`；Stage 2 不重试（`max_retries=0`），失败结果 `retryable=False`；不得把 Finding 标记为 `verified`。
 - `UsageSummary` 是内部统计，不等同于冻结的 `CostSummary`；只有真实返回的 token usage 才能累加，禁止伪造 0 token / 0 成本。
 - `ArtifactData` 是内存只读证据快照，支持稳定 JSON Pointer；Final Reviewer 必须校验内存对象，不得依赖尚未写盘的报告文件。
@@ -178,7 +178,7 @@ Stage 2 已裁定：
 - 问题 B：区分代码位置 Finding 与工具项目级 Finding；`low_coverage` 不得伪造文件/行号。
 - 问题 C：不得预置 B107/B608 为 critical；严重级别由工具原始结果 + 配置映射决定。
 - 问题 D：真实 LLM 调用不得伪造 0 `cost_summary`；`CostSummary` 无法表达未知成本时不修改 Schema，使用内部 `UsageSummary`。
-- D-3：使用确定性的真实临时 Git 仓库 SHA；D-4：生产默认 Stage 2 行为，旧调用显式 `multi_agent=False`；D-5：默认 Fake/Mock，真实 LLM 冒烟独立（负责人 2026-11-12 裁定统一留待 Stage 2.2–2.4）；D-7：Stage 2.1 声明 PyYAML，保持 Stage 1 lock；D-11：工具成功 + LLM 失败 → `partial` 并保留工具证据；D-12：外部 Testing 未执行 → TestingAgent completed、Testing 分数 null、报告 partial。
+- D-3：使用确定性的真实临时 Git 仓库 SHA；D-4：生产默认 Stage 2 行为，旧调用显式 `multi_agent=False`；D-5：默认 Fake/Mock，真实 LLM 冒烟独立、需单独批准且不纳入默认验收；D-7：Stage 2.1 声明 PyYAML，保持 Stage 1 lock；D-11：工具成功 + LLM 失败 → `partial` 并保留工具证据；D-12：外部 Testing 未执行 → TestingAgent completed、Testing 分数 null、报告 partial。
 
 仍需注意：
 
@@ -207,5 +207,5 @@ Stage 2 已裁定：
 - 阶段 0、1 已完成；Stage 2.1 已完成并等待负责人确认；Stage 2.2 尚未开始。未经确认不推进下一子阶段、不增加依赖、不删除/重写冻结规格文档。
 - 冻结文件：三个核心 Schema、五份核心文档、`report_generator.py`、`artifact_models.py`、`markdown_renderer.py`、`finding_aggregator.py`、`tests/fixtures/trusted_repo/`、`environment.lock.yml`。Stage 2.1 另要求不改三个 Schema 与上述报告/聚合文件。
 - Stage 2.3 安装 LangGraph 前必须通过提示词中的安装门禁并获得负责人确认；不得安装 `langchain-openai`、`langsmith` 或引入 tracing/API Key/网络上报。
-- Stage 2.1 裁定：真实与 Fake LLM 冒烟测试均不在本阶段执行，统一留待 Stage 2.2–2.4；单元测试继续使用 Fake/Mock 且不得联网。
+- Stage 2.1 裁定：本阶段不执行真实 LLM 冒烟；Fake/Mock 仅用于单元测试；真实 LLM 冒烟需负责人单独批准，不纳入默认验收；Fake LLM 完整 E2E 在 Stage 2.6。
 - 阶段 1 的裁定记录现位于 `Prompt/Stage1实施前人工决策.md`（本地）；基线补充以 `docs/acceptance.md` §4.7～§4.11 与 `docs/architecture.md` §7.1.1/§8.1 为准。
