@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 仓库现状
 
-这是 **Multi-Agent Code Review System**。阶段 0（工程初始化与需求冻结）于 2026-11-09 验收；阶段 1（单 Agent 代码审查基础）于 2026-11-10 完成并提交（`65af76e`）；Stage 2.1 于 2026-11-12 完成，Stage 2.2～2.5 已分别提交（`d8e3cf0`、`ec0afe2`、`ce1bded`），Stage 2.6（Fixture、端到端、基线与最终验收）已完成，等待负责人验收。五份核心文档自阶段 1 基线修订后冻结：`acceptance.md`、`architecture.md`、`requirements.md`、`workflow.md` 为 v1.1，`task_contracts.md` 为 v1.0。
+这是 **Multi-Agent Code Review System**。阶段 0（工程初始化与需求冻结）于 2026-11-09 验收；阶段 1（单 Agent 代码审查基础）于 2026-11-10 完成并提交（`65af76e`）；Stage 2.1 于 2026-11-12 完成并提交（`12daa7d`），Stage 2.2～2.5 已分别提交（`d8e3cf0`、`ec0afe2`、`ce1bded`），Stage 2.6（Fixture、端到端、基线与最终验收）与 O-1 已提交（`51420ef`），等待负责人验收。五份核心文档自阶段 1 基线修订后冻结：`acceptance.md`、`architecture.md`、`requirements.md`、`workflow.md` 为 v1.1，`task_contracts.md` 为 v1.0。
 
 - 已存在：`docs/*.md`、`environment.yml`、`environment.lock.yml`、`environment.lock.stage2.yml`、`.env.example`、`.gitignore`、`README.md`、`pytest.ini`、`config/settings.py`、`config/review_rules.py`、`config/review_rules.yaml`、`config/llm_pricing.py`、`config/llm_pricing.yaml`、`src/code_review/{schemas,tools,services,reporting,api}`、`src/code_review/agents/`（合同、Manager、四个专业 Agent、Final Reviewer）、`src/code_review/graph/`、`src/code_review/prompts/`、`tests/unit/`、`tests/integration/`、`tests/fixtures/trusted_repo/`、`tests/fixtures/stage2_sample_repo/`
 - 阶段 0 交付：四个核心 Pydantic Schema 与 204 条单元测试
@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 阶段 2.1 交付：Agent 内部 DTO/Protocol、`BaseAgent`、安全 Prompt 投影与 JSON/usage 支持、四个专业 Prompt、`review_rules.yaml` 严格加载器、Fake Agent/Fake LLM 测试设施
 - 阶段 2.2～2.6 交付：Manager 与 Security/Quality/Performance/Testing Agent、LangGraph 7 节点并行工作流、Final Reviewer（V1～V7 证据校验、去重、四维评分）、`ReviewService.review_stage2_fixture()`、五件 Stage 2 产物（含 `report.json`）、自有 Fixture 与确定性真实 Git SHA、Stage 2 E2E 与验收报告
 - 尚未创建（Stage 3 及以后）：`orchestration/`、`workers/`、`observability/`、`storage/`、`mcp/`、`a2a/`、`external_agents/`，以及 Redis/ARQ、PostgreSQL、MCP/A2A SDK、OpenTelemetry、LangSmith tracing、Docker
-- Git：本地 `main` 跟踪 `origin/main`（`Fightming98/multi-agent-code-review`，Public）。`reports/stage0/`、`reports/stage1/`、`reports/stage2_*_acceptance_report.md` 等验收/评审记录纳入版本控制；`reports/stage1-<timestamp>/` 这类真实第三方仓库产物含第三方代码片段与原始工具输出，保留本地并由 `.gitignore` 排除。`Prompt/*` 为本地提示词/裁定记录，不纳入版本控制
+- Git：本地 `main` 跟踪 `origin/main`（`Fightming98/multi-agent-code-review`，Public）。`reports/stage0/`、`reports/stage1/`、`reports/stage2_*_acceptance_report.md` 等验收/评审记录纳入版本控制；`reports/stage1-<timestamp>/`、`reports/stage2-<timestamp>/` 这类真实第三方仓库产物含第三方代码片段与原始工具输出，仅保留本地；`reports/stage1-*/` 由 `.gitignore` 排除，`reports/stage2-<timestamp>/` 尚未加入忽略规则，提交时必须显式排除。`Prompt/*` 为本地提示词/裁定记录，不纳入版本控制
 
 阶段 2 已按 Stage 2.1 → 2.6 完成：2.1 基础合同；2.2 Manager 与四个专业 Agent；2.3 LangGraph StateGraph 并行扇出/扇入；2.4 Final Reviewer、证据验证、去重与评分；2.5 ReviewService 集成、五件报告、CLI/API；2.6 Fixture、端到端、基线与最终验收。O-1 已由 `config/llm_pricing.*` 的精确价格表方案解决，真实 LLM 可经 `--real-llm` 进入五件产物链路。Stage 2.6 等待负责人验收；未经确认不得进入 Stage 3、不得新增依赖或实现后续阶段。
 
@@ -39,7 +39,7 @@ export PYTHONUTF8=1                # PowerShell: $env:PYTHONUTF8 = "1"
 pytest tests/unit -q
 pytest -q
 
-# Stage 2.1 专项（208 条）
+# Stage 2.1 专项（213 条）
 pytest tests/unit/test_agent_base.py tests/unit/test_stage2_contracts.py \
        tests/unit/test_review_rules.py tests/unit/test_llm_support.py -q
 
@@ -58,7 +58,8 @@ ruff check src/code_review/agents config/review_rules.py tests/stage2_helpers.py
 ```bash
 python -c "import fastapi, uvicorn, pydantic, pydantic_settings, dotenv, pytest, httpx, structlog; print('ok')"
 
-# 禁止项探测：允许被动带入 opentelemetry-api，其余禁止项必须为空
+# 禁止项探测：按阶段 0 基线编写；Stage 2.3 起 langgraph 及其依赖已批准安装，
+# 因此 FORBIDDEN 会列出 langgraph/langchain/langsmith，需对照“依赖现状”逐项核对
 python -c "import importlib.metadata as m; n={(d.metadata['Name'] or '').lower().replace('_','-') for d in m.distributions()}; exact={'langgraph','redis','arq','sqlalchemy','asyncpg','mcp','a2a-sdk','langsmith','streamlit'}; pre=('langchain','langgraph-','psycopg'); print('FORBIDDEN:', sorted(x for x in n if x in exact or x.startswith(pre) or (x.startswith('opentelemetry') and x!='opentelemetry-api'))); print('PASSIVE-ALLOWED:', sorted(x for x in n if x=='opentelemetry-api'))"
 
 python -c "from config.settings import Settings; print(Settings())"
@@ -160,7 +161,7 @@ Stage 1 为线性单 Agent 流程，只生成四件产物（`metadata.json`、`s
 | `reports/stage2_1_acceptance_report.md` | Stage 2.1 验收报告（纳入版本控制） |
 | `reports/stage2_2_acceptance_report.md` … `reports/stage2_6_final_acceptance_report.md` | Stage 2.2～2.6 验收报告（纳入版本控制） |
 | `reports/stage2_o1_resolution_report.md` | O-1 成本语义与真实 LLM 五件产物验证报告（2026-11-13，纳入版本控制） |
-| `reports/stage1-<timestamp>/` | 真实第三方仓库评审产物（本地，不提交） |
+| `reports/stage1-<timestamp>/`、`reports/stage2-<timestamp>/` | 真实第三方仓库评审产物（本地，不提交；stage1 目录已由 `.gitignore` 排除） |
 
 ## 已解决的文档冲突与仍需注意的事项
 
@@ -198,7 +199,7 @@ Stage 2 已裁定：
 - 阶段 1 阈值记录在 `docs/acceptance.md` §4.7；可信 Fixture 规则见 §4.8；不得在业务代码中散落阈值。
 - `services/llm_analyzer.py` 是阶段 1 非 Agent LLM 分析；Stage 2.2 起的专业 Agent 使用 `agents/` + `prompts/`。
 - `environment.lock.yml` 是 Stage 1 Windows 环境快照，Stage 2 不得覆盖；依赖变更只改 `environment.yml`。
-- 当前测试 3 条 warning 为既有 Starlette/httpx 弃用与 Windows junction 线程解码警告，无 failure/error。
+- 当前全量测试为 1339 passed、9 skipped，无 failure/error，无 warning 汇总输出。
 
 ## 工作规则
 
@@ -206,7 +207,7 @@ Stage 2 已裁定：
 - 不得覆盖已存在的文件/配置；改动前先读契约与验收标准。
 - 不得伪造执行结果；验收报告必须如实写 PASS/FAIL/BLOCKED，失败就是失败。
 - 如终端无法 `conda activate`，说明原因并给替代方案，不要修改系统配置。
-- 提交前确认 `.env` 未被跟踪；不得提交密钥、token、主机路径或 `reports/stage1-<timestamp>/` 下的真实第三方产物。验收/评审记录（`reports/stage0/`、`reports/stage1/`、`reports/stage2_*_acceptance_report.md`）可以提交。
+- 提交前确认 `.env` 未被跟踪；不得提交密钥、token、主机路径或 `reports/stage1-<timestamp>/`、`reports/stage2-<timestamp>/` 下的真实第三方产物。验收/评审记录（`reports/stage0/`、`reports/stage1/`、`reports/stage2_*_acceptance_report.md`）可以提交。
 - 提交使用**显式路径**；禁止 `git add -A` / `git add .`，避免把本地真实产物带入版本控制。
 - 阶段 0、1 已完成；Stage 2.1～2.6 已完成，Stage 2.6 等待负责人验收；Stage 3 尚未开始。未经确认不得推进 Stage 3、不增加依赖、不删除/重写冻结规格文档。
 - 冻结文件：三个核心 Schema、五份核心文档、`report_generator.py`、`artifact_models.py`、`markdown_renderer.py`、`finding_aggregator.py`、`tests/fixtures/trusted_repo/`、`environment.lock.yml`。Stage 2 另要求不改三个 Schema 与上述报告/聚合文件。

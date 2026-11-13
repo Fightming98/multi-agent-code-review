@@ -3,10 +3,10 @@
 输入一个 GitHub 仓库 URL，由 Manager Agent 规划任务，Security / Quality / Performance / Testing
 四个专业 Agent 并行审查，最终由 Final Reviewer 完成证据核验、去重、评分并生成结构化审查报告。
 
-> 当前进度：**阶段 2（多 Agent 代码审查）**。Stage 2.1～2.6 已完成，
-> Stage 2.6 全链路验收证据待人工审核。默认评审路径使用确定性工具、
-> 不调用真实 LLM；真实 LLM 通过 `--real-llm` 显式启用，O-1 成本语义
-> 已由 `config/llm_pricing.yaml` 的模型价格表解决。
+> 当前进度：**阶段 2（多 Agent 代码审查）**。Stage 2.1～2.5 已分别提交，
+> Stage 2.6 与 O-1 已提交（`51420ef`），全链路验收证据待人工审核。
+> 默认评审路径使用确定性工具、不调用真实 LLM；真实 LLM 通过 `--real-llm`
+> 显式启用，O-1 成本语义已由 `config/llm_pricing.yaml` 的模型价格表解决。
 
 ## 技术栈（阶段 2）
 
@@ -120,6 +120,9 @@ Performance 三个 Agent 会执行受限的语义补充；TestingAgent 始终只
   不影响其他平台的验收结论。
 - 产物中的主机路径、工作区路径与密钥样式文本已脱敏；工具 stdout/stderr 仍可能包含
   被截断的代码片段，报告使用前应按组织的数据分级要求处理。
+- 真实第三方仓库的评审产物目录（`reports/stage1-<timestamp>/`、
+  `reports/stage2-<timestamp>/`）仅保留本地，不纳入版本控制；`reports/stage1-*/`
+  已由 `.gitignore` 排除，`reports/stage2-<timestamp>/` 需在提交时显式排除。
 
 ## 当前目录
 
