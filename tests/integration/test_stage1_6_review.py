@@ -116,6 +116,7 @@ def build_external_service(
         test_runner=PytestRunner(settings),
         llm_analyzer=llm,
         report_generator=ReportGenerator(),
+        multi_agent=False,
     )
     return service, manager, llm
 
@@ -205,6 +206,7 @@ def test_trusted_fixture_review_executes_tests_and_marks_source(
         llm_analyzer=EchoLLM(),
         report_generator=ReportGenerator(),
         allow_trusted_fixture_review=True,
+        multi_agent=False,
     )
 
     outcome = service.review_trusted_fixture()

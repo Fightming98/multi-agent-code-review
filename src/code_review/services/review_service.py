@@ -1,15 +1,19 @@
-"""阶段 1 统一审查业务入口。
+"""Stage 1 / Stage 2 统一审查业务入口。
 
-``ReviewService`` 是 CLI、FastAPI 与后续 Worker 的唯一业务入口。阶段 1 的
-执行顺序固定为：
+``ReviewService`` 是 CLI、FastAPI 与后续 Worker 的唯一业务入口。生产默认
+走 Stage 2 多 Agent 工作流；Stage 1 调用方必须显式构造
+``ReviewService(..., multi_agent=False)``。
 
-参数校验 → 仓库获取与 Commit 固定 → 文件扫描 → 静态分析 → 测试执行决策
-→ 结果聚合 → LLM 辅助分析 → 报告生成 → 资源清理。
+Stage 2 执行顺序固定为：
 
-单个工具、测试或 LLM 的失败会被隔离为对应的失败结果，并保留其他确定性
-结果；仓库获取、扫描与报告生成失败属于本次审查不可继续的阶段错误。所有
-错误信息都经过安全收敛，不包含 API Key、仓库内容、宿主机绝对路径或本地
-工作区路径。
+参数校验 → 仓库获取与 Commit 固定 → 文件扫描 → LangGraph 进程内执行
+（Manager → 四个专业 Agent 并行 → Manager Aggregate → Final Reviewer）
+→ 五件报告产物 → 资源清理。
+
+``review_trusted_fixture()`` 保持 Stage 1 的四件产物与 ``commit_sha=None``
+行为；Stage 2 自有 Fixture 使用独立的 ``review_stage2_fixture()``，必须提供
+真实 40 位 Git SHA。所有错误信息都经过安全收敛，不包含 API Key、仓库内容、
+宿主机绝对路径或本地工作区路径。
 """
 
 from __future__ import annotations
@@ -17,14 +21,21 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self
 from uuid import uuid4
 
 import structlog
 
+from code_review.agents.contracts import ArtifactData, UsageSummary
+from code_review.graph.state import (
+    RepositoryContext,
+    ReviewStateError,
+    build_initial_state,
+)
+from code_review.graph.workflow import run_review_graph
 from code_review.reporting.artifact_models import ReviewStatus
 from code_review.reporting.report_generator import (
     InventorySummary,
@@ -33,7 +44,12 @@ from code_review.reporting.report_generator import (
     ReportGenerator,
     ReviewArtifactInput,
 )
-from code_review.schemas.report import TestSummary
+from code_review.reporting.stage2_report_generator import (
+    Stage2ArtifactInput,
+    Stage2ReportArtifacts,
+    Stage2ReportGenerator,
+)
+from code_review.schemas.report import ReviewReport, TestSummary
 from code_review.schemas.task import ErrorInfo
 from code_review.tools.bandit_tool import BanditTool
 from code_review.tools.base import (
@@ -50,6 +66,7 @@ from code_review.tools.repository_inspector import (
 from code_review.tools.repository_manager import (
     CloneError,
     CommitResolutionError,
+    GitClient,
     GitNotFoundError,
     GitTimeoutError,
     RepositoryError,
@@ -84,9 +101,16 @@ from .llm_analyzer import (
     LLMAnalysisStatus,
     LLMAnalyzer,
 )
+from .stage2_factory import (
+    Stage2Dependencies,
+    Stage2FactoryContext,
+    build_stage2_dependencies,
+)
 
 _LOGGER = structlog.get_logger(__name__)
 _COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_FIXTURE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_]{0,63}$")
 _MAX_WARNING_CHARS = 500
 
 
@@ -138,15 +162,23 @@ class ReviewOutcome:
     llm_status: str
     warnings: tuple[str, ...]
     duration_seconds: float
+    review_stage: Literal["stage_1", "stage_2"] = "stage_1"
+    report_json_path: Path | None = None
+    overall_verdict: str | None = None
+    overall_score: float | None = None
+    dimension_scores: dict[str, float | None] = field(default_factory=dict)
 
     @property
-    def artifact_paths(self) -> tuple[Path, Path, Path, Path]:
-        return (
+    def artifact_paths(self) -> tuple[Path, ...]:
+        paths = [
             self.metadata_path,
             self.static_analysis_path,
             self.test_report_path,
-            self.markdown_path,
-        )
+        ]
+        if self.report_json_path is not None:
+            paths.append(self.report_json_path)
+        paths.append(self.markdown_path)
+        return tuple(paths)
 
 
 @dataclass(frozen=True)
@@ -185,6 +217,12 @@ class ReviewService:
         clock: Callable[[], datetime] | None = None,
         id_factory: Callable[[datetime], str] | None = None,
         allow_trusted_fixture_review: bool = False,
+        multi_agent: bool = True,
+        stage2_factory: (
+            Callable[[Stage2FactoryContext], Stage2Dependencies] | None
+        ) = None,
+        stage2_report_generator: Stage2ReportGenerator | None = None,
+        git_client: GitClient | None = None,
     ) -> None:
         self.settings = settings
         self._owns_repository_manager = repository_manager is None
@@ -209,8 +247,14 @@ class ReviewService:
         self._llm_analyzer = llm_analyzer or LLMAnalyzer.from_settings(settings)
         self._report_generator = report_generator or ReportGenerator()
         self._clock = clock or (lambda: datetime.now(UTC))
-        self._id_factory = id_factory or self._default_review_id
+        self._id_factory = id_factory
         self._allow_trusted_fixture_review = allow_trusted_fixture_review
+        self._multi_agent = bool(multi_agent)
+        self._stage2_factory = stage2_factory or build_stage2_dependencies
+        self._stage2_report_generator = (
+            stage2_report_generator or Stage2ReportGenerator()
+        )
+        self._git_client = git_client or GitClient(settings.git_executable)
 
     # ------------------------------------------------------------------
     # 公共入口
@@ -220,12 +264,15 @@ class ReviewService:
 
         repository = self._validate_request(request)
         started_at = self._now()
-        review_id = self._new_review_id(started_at)
+        review_id = self._new_review_id(
+            started_at, stage2=self._multi_agent
+        )
         output_root = self._resolve_output_root(request.output_root)
         _LOGGER.info(
             "review_started",
             review_id=review_id,
             source_type="github_repository",
+            review_stage=("stage_2" if self._multi_agent else "stage_1"),
             branch=request.branch,
             has_commit=request.commit_sha is not None,
         )
@@ -243,12 +290,20 @@ class ReviewService:
                 oversized_files=tuple(snapshot.oversized_files),
             )
             self._ensure_output_outside_workspace(output_root, workspace.path, review_id)
-            outcome = self._run_review(
-                workspace,
-                review_id=review_id,
-                started_at=started_at,
-                output_root=output_root,
-            )
+            if self._multi_agent:
+                outcome = self._run_stage2_review(
+                    workspace,
+                    review_id=review_id,
+                    started_at=started_at,
+                    output_root=output_root,
+                )
+            else:
+                outcome = self._run_review(
+                    workspace,
+                    review_id=review_id,
+                    started_at=started_at,
+                    output_root=output_root,
+                )
             _LOGGER.info(
                 "review_completed",
                 review_id=review_id,
@@ -292,10 +347,14 @@ class ReviewService:
         *,
         output_root: Path | str | None = None,
     ) -> ReviewOutcome:
-        """审查项目自维护的可信 Fixture。
+        """审查项目自维护的可信 Fixture（Stage 1 legacy 行为）。
 
         该入口只用于阶段 1 的受控集成测试与验收，不通过 CLI / FastAPI 暴露。
         调用方必须在构造服务时显式开启 ``allow_trusted_fixture_review``。
+
+        即使服务以 ``multi_agent=True`` 构造，本方法仍保持四件产物与
+        ``commit_sha=None``：Stage 2 自有 Fixture 必须使用
+        ``review_stage2_fixture()`` 并传入真实 Git SHA。
         """
 
         if not self._allow_trusted_fixture_review:
@@ -364,6 +423,194 @@ class ReviewService:
                 review_id=review_id,
                 started_at=started_at,
                 output_root=resolved_output_root,
+            )
+            _LOGGER.info(
+                "review_completed",
+                review_id=review_id,
+                review_status=outcome.review_status,
+                finding_count=outcome.finding_count,
+                test_status=outcome.test_status,
+                llm_status=outcome.llm_status,
+                duration_seconds=outcome.duration_seconds,
+            )
+            return outcome
+        except ReviewServiceError as exc:
+            _LOGGER.error(
+                "review_failed",
+                review_id=review_id,
+                stage=exc.stage,
+                error_type=exc.error_type,
+                retryable=exc.retryable,
+            )
+            if exc.review_id is None:
+                exc.review_id = review_id
+            raise
+        except Exception as exc:
+            _LOGGER.error(
+                "review_failed",
+                review_id=review_id,
+                stage="internal",
+                error_type=type(exc).__name__,
+            )
+            raise ReviewServiceError(
+                "review failed unexpectedly",
+                stage="internal",
+                error_type=type(exc).__name__,
+                review_id=review_id,
+            ) from exc
+
+    def review_stage2_fixture(
+        self,
+        *,
+        workspace_path: Path | str,
+        commit_sha: str,
+        trusted_fixture: str | None = None,
+        repository_name: str | None = None,
+        branch: str = "fixture",
+        output_root: Path | str | None = None,
+        fixture_manifest_sha256: str | None = None,
+    ) -> ReviewOutcome:
+        """以 Stage 2 多 Agent 工作流审查一个受批准的自有 Fixture。
+
+        与 ``review_trusted_fixture()`` 严格隔离：
+
+        - 本入口要求真实、可验证的 40 位 Git Commit SHA；
+        - 只有显式开启 ``allow_trusted_fixture_review`` 且 ``multi_agent=True``
+          时可用；
+        - ``trusted_fixture`` 必须是已批准名称且与配置一致，否则测试不会执行；
+        - 工作区由调用方准备（Stage 2.6 用真实临时 Git 仓库构建），本方法
+          不清理调用方工作区。
+
+        该入口不通过 CLI / FastAPI 暴露。
+        """
+
+        if not self._allow_trusted_fixture_review:
+            raise ReviewServiceError(
+                "trusted fixture review is not enabled",
+                stage="validation",
+                error_type="trusted_fixture_disabled",
+            )
+        if not self._multi_agent:
+            raise ReviewServiceError(
+                "stage 2 fixture review requires multi_agent=True",
+                stage="validation",
+                error_type="stage2_review_disabled",
+            )
+
+        started_at = self._now()
+        review_id = self._new_review_id(started_at, stage2=True)
+        resolved_output_root = self._resolve_output_root(output_root)
+
+        try:
+            fixture_path = Path(workspace_path).expanduser().resolve()
+        except (OSError, TypeError) as exc:
+            raise ReviewServiceError(
+                "stage 2 fixture workspace is invalid",
+                stage="fixture",
+                error_type="invalid_fixture_workspace",
+                review_id=review_id,
+            ) from exc
+        if not fixture_path.is_dir():
+            raise ReviewServiceError(
+                "stage 2 fixture workspace is unavailable",
+                stage="fixture",
+                error_type="invalid_fixture_workspace",
+                review_id=review_id,
+            )
+
+        try:
+            normalized_sha = normalize_commit_sha(commit_sha)
+        except URLValidationError as exc:
+            raise ReviewServiceError(
+                "stage 2 fixture commit SHA is invalid",
+                stage="validation",
+                error_type="invalid_revision",
+                review_id=review_id,
+            ) from exc
+
+        if trusted_fixture is not None:
+            if trusted_fixture not in APPROVED_TRUSTED_FIXTURE_NAMES:
+                raise ReviewServiceError(
+                    "trusted fixture is not approved",
+                    stage="fixture",
+                    error_type="fixture_not_approved",
+                    review_id=review_id,
+                )
+            if trusted_fixture != self.settings.trusted_fixture_name:
+                raise ReviewServiceError(
+                    "trusted fixture name does not match configuration; "
+                    "tests would not be executed",
+                    stage="fixture",
+                    error_type="fixture_name_mismatch",
+                    review_id=review_id,
+                )
+
+        resolved_name = (
+            repository_name if repository_name is not None else trusted_fixture
+        )
+        if (
+            not isinstance(resolved_name, str)
+            or not _FIXTURE_NAME_RE.fullmatch(resolved_name)
+        ):
+            raise ReviewServiceError(
+                "stage 2 fixture repository name is invalid",
+                stage="validation",
+                error_type="invalid_fixture_name",
+                review_id=review_id,
+            )
+
+        if not isinstance(branch, str) or not branch.strip() or len(branch) > 255:
+            raise ReviewServiceError(
+                "stage 2 fixture branch is invalid",
+                stage="validation",
+                error_type="invalid_revision",
+                review_id=review_id,
+            )
+        if fixture_manifest_sha256 is not None and not _SHA256_RE.fullmatch(
+            fixture_manifest_sha256
+        ):
+            raise ReviewServiceError(
+                "stage 2 fixture manifest SHA-256 is invalid",
+                stage="validation",
+                error_type="invalid_fixture_manifest",
+                review_id=review_id,
+            )
+
+        self._verify_fixture_commit(
+            fixture_path,
+            normalized_sha,
+            review_id=review_id,
+        )
+        self._ensure_output_outside_workspace(
+            resolved_output_root, fixture_path, review_id
+        )
+
+        workspace = _WorkspaceInfo(
+            path=fixture_path,
+            repository_url=f"fixture://{resolved_name}",
+            repository_name=resolved_name,
+            branch=branch.strip(),
+            commit_sha=normalized_sha,
+            source_type="trusted_fixture",
+            fixture_name=trusted_fixture,
+            fixture_manifest_sha256=fixture_manifest_sha256,
+        )
+        _LOGGER.info(
+            "review_started",
+            review_id=review_id,
+            source_type="trusted_fixture",
+            review_stage="stage_2",
+            branch=workspace.branch,
+            has_commit=True,
+        )
+        try:
+            outcome = self._run_stage2_review(
+                workspace,
+                review_id=review_id,
+                started_at=started_at,
+                output_root=resolved_output_root,
+                trusted_fixture=trusted_fixture,
+                fixture_manifest_sha256=fixture_manifest_sha256,
             )
             _LOGGER.info(
                 "review_completed",
@@ -651,6 +898,169 @@ class ReviewService:
             review_status=review_status,
             test_result=test_result,
             llm_analysis=llm_analysis,
+            warnings=warnings,
+            duration_seconds=duration_seconds,
+        )
+
+    def _run_stage2_review(
+        self,
+        workspace: _WorkspaceInfo,
+        *,
+        review_id: str,
+        started_at: datetime,
+        output_root: Path,
+        trusted_fixture: str | None = None,
+        fixture_manifest_sha256: str | None = None,
+    ) -> ReviewOutcome:
+        """执行 Stage 2 LangGraph 工作流并生成五件产物。"""
+
+        if not isinstance(workspace.commit_sha, str) or not _COMMIT_SHA_RE.fullmatch(
+            workspace.commit_sha
+        ):
+            raise ReviewServiceError(
+                "stage 2 review requires a fixed 40-character commit SHA",
+                stage="validation",
+                error_type="missing_commit_sha",
+                review_id=review_id,
+            )
+
+        started_clock = time.perf_counter()
+        inventory = self._inspect(workspace.path, review_id)
+        python_files = [file.path for file in inventory.python_files]
+        _LOGGER.info(
+            "inventory_completed",
+            review_id=review_id,
+            total_files=inventory.statistics.total_files,
+            python_files=len(python_files),
+            partial=inventory.is_partial,
+        )
+
+        factory_context = Stage2FactoryContext(
+            settings=self.settings,
+            tools=self._tools,
+            test_runner=self._test_runner,
+            trusted_fixture=trusted_fixture,
+            clock=self._clock,
+        )
+        try:
+            dependencies = self._stage2_factory(factory_context)
+        except Exception as exc:
+            raise ReviewServiceError(
+                "stage 2 agent dependency setup failed",
+                stage="graph",
+                error_type="graph_setup_failed",
+                review_id=review_id,
+            ) from exc
+        if not isinstance(dependencies, Stage2Dependencies):
+            raise ReviewServiceError(
+                "stage 2 agent dependency setup returned an invalid result",
+                stage="graph",
+                error_type="graph_setup_failed",
+                review_id=review_id,
+            )
+
+        try:
+            initial_state = build_initial_state(
+                review_id=review_id,
+                commit_sha=workspace.commit_sha,
+                repository=RepositoryContext(
+                    repository_url=workspace.repository_url,
+                    repository_name=workspace.repository_name,
+                    branch=workspace.branch,
+                    language="python",
+                    source_type=workspace.source_type,
+                ),
+                workspace_path=workspace.path,
+                allowed_files=python_files,
+                inventory=self._inventory_summary(inventory),
+                rules=dependencies.rules,
+            )
+        except (ReviewStateError, ValueError, TypeError) as exc:
+            raise ReviewServiceError(
+                "stage 2 review state is invalid",
+                stage="graph",
+                error_type="graph_setup_failed",
+                review_id=review_id,
+            ) from exc
+
+        try:
+            state = run_review_graph(dependencies.graph, initial_state)
+        except Exception as exc:
+            _LOGGER.error(
+                "stage2_graph_failed",
+                review_id=review_id,
+                error_type=type(exc).__name__,
+            )
+            raise ReviewServiceError(
+                "stage 2 review execution failed",
+                stage="graph",
+                error_type="graph_execution_failed",
+                review_id=review_id,
+            ) from exc
+
+        report = state.get("review_report")
+        artifact_data = state.get("artifact_data")
+        usage_summary = state.get("usage_summary")
+        if (
+            not isinstance(report, ReviewReport)
+            or not isinstance(artifact_data, ArtifactData)
+            or not isinstance(usage_summary, UsageSummary)
+        ):
+            raise ReviewServiceError(
+                "stage 2 review graph did not produce a complete report",
+                stage="graph",
+                error_type="graph_execution_failed",
+                review_id=review_id,
+            )
+
+        duration_seconds = round(time.perf_counter() - started_clock, 3)
+        warnings = tuple(
+            _shorten(item)
+            for item in (state.get("warnings") or ())
+            if isinstance(item, str)
+        )
+        source = Stage2ArtifactInput(
+            report=report,
+            artifact_data=artifact_data,
+            usage_summary=usage_summary,
+            source_type=workspace.source_type,
+            reviewed_at=started_at,
+            inventory=self._inventory_summary(inventory),
+            review_duration_seconds=duration_seconds,
+            warnings=warnings,
+            workspace_path=workspace.path,
+            fixture_manifest_sha256=(
+                fixture_manifest_sha256
+                if fixture_manifest_sha256 is not None
+                else workspace.fixture_manifest_sha256
+            ),
+        )
+        try:
+            artifacts = self._stage2_report_generator.generate(
+                source, output_root
+            )
+        except ReportGenerationError as exc:
+            raise ReviewServiceError(
+                "report generation failed",
+                stage="reporting",
+                error_type="report_generation_failed",
+                review_id=review_id,
+            ) from exc
+
+        _LOGGER.info(
+            "report_generated",
+            review_id=review_id,
+            review_stage="stage_2",
+            review_status=report.report_status,
+            overall_verdict=report.overall_verdict,
+            finding_count=len(report.findings),
+            duration_seconds=duration_seconds,
+        )
+        return self._stage2_outcome(
+            artifacts,
+            workspace=workspace,
+            report=report,
+            usage_summary=usage_summary,
             warnings=warnings,
             duration_seconds=duration_seconds,
         )
@@ -959,6 +1369,49 @@ class ReviewService:
         return "completed"
 
     @staticmethod
+    def _stage2_outcome(
+        artifacts: Stage2ReportArtifacts,
+        *,
+        workspace: _WorkspaceInfo,
+        report: ReviewReport,
+        usage_summary: UsageSummary,
+        warnings: Sequence[str],
+        duration_seconds: float,
+    ) -> ReviewOutcome:
+        severity_counts: dict[str, int] = {}
+        for finding in report.findings:
+            severity_counts[finding.severity] = (
+                severity_counts.get(finding.severity, 0) + 1
+            )
+        return ReviewOutcome(
+            review_id=artifacts.review_id,
+            review_status=report.report_status,
+            repository_name=workspace.repository_name,
+            commit_sha=workspace.commit_sha,
+            report_dir=artifacts.report_dir,
+            metadata_path=artifacts.metadata_path,
+            static_analysis_path=artifacts.static_analysis_path,
+            test_report_path=artifacts.test_report_path,
+            markdown_path=artifacts.markdown_path,
+            report_json_path=artifacts.report_json_path,
+            finding_count=len(report.findings),
+            severity_counts=dict(sorted(severity_counts.items())),
+            test_status=report.test_summary.execution_status,
+            llm_status=(
+                "not_configured" if usage_summary.llm_calls == 0 else "completed"
+            ),
+            warnings=tuple(warnings),
+            duration_seconds=duration_seconds,
+            review_stage="stage_2",
+            overall_verdict=report.overall_verdict,
+            overall_score=report.overall_score,
+            dimension_scores={
+                dimension: item.score
+                for dimension, item in report.dimension_scores.items()
+            },
+        )
+
+    @staticmethod
     def _outcome(
         artifacts: ReportArtifacts,
         *,
@@ -1009,8 +1462,18 @@ class ReviewService:
             )
         return value.astimezone(UTC)
 
-    def _new_review_id(self, started_at: datetime) -> str:
-        value = self._id_factory(started_at)
+    def _new_review_id(
+        self,
+        started_at: datetime,
+        *,
+        stage2: bool = False,
+    ) -> str:
+        factory = self._id_factory or (
+            self._default_stage2_review_id
+            if stage2
+            else self._default_review_id
+        )
+        value = factory(started_at)
         if not isinstance(value, str) or not value.strip():
             raise ReviewServiceError(
                 "review id is invalid",
@@ -1023,6 +1486,71 @@ class ReviewService:
     def _default_review_id(started_at: datetime) -> str:
         stamp = started_at.strftime("%Y%m%dT%H%M%SZ")
         return f"stage1-{stamp}-{uuid4().hex[:8]}"
+
+    @staticmethod
+    def _default_stage2_review_id(started_at: datetime) -> str:
+        stamp = started_at.strftime("%Y%m%dT%H%M%SZ")
+        return f"stage2-{stamp}-{uuid4().hex[:8]}"
+
+    def _verify_fixture_commit(
+        self,
+        workspace_path: Path,
+        commit_sha: str,
+        *,
+        review_id: str,
+    ) -> None:
+        """验证 Fixture 工作区的 HEAD 与声明 SHA 一致，不伪造 Commit。"""
+
+        try:
+            result = self._git_client.run(
+                ["rev-parse", "--verify", "HEAD^{commit}"],
+                cwd=workspace_path,
+                timeout=self.settings.git_command_timeout_seconds,
+            )
+        except GitNotFoundError as exc:
+            raise ReviewServiceError(
+                "git executable is not available",
+                stage="fixture",
+                error_type="git_not_found",
+                review_id=review_id,
+            ) from exc
+        except GitTimeoutError as exc:
+            raise ReviewServiceError(
+                "stage 2 fixture verification timed out",
+                stage="fixture",
+                error_type="fixture_git_timeout",
+                review_id=review_id,
+            ) from exc
+        except RepositoryError as exc:
+            raise ReviewServiceError(
+                "stage 2 fixture verification failed",
+                stage="fixture",
+                error_type="fixture_git_error",
+                review_id=review_id,
+            ) from exc
+        except Exception as exc:
+            raise ReviewServiceError(
+                "stage 2 fixture verification failed unexpectedly",
+                stage="fixture",
+                error_type="fixture_git_error",
+                review_id=review_id,
+            ) from exc
+
+        if result.returncode != 0:
+            raise ReviewServiceError(
+                "stage 2 fixture is not a valid Git repository",
+                stage="fixture",
+                error_type="fixture_git_error",
+                review_id=review_id,
+            )
+        head_sha = result.stdout.strip().lower()
+        if head_sha != commit_sha:
+            raise ReviewServiceError(
+                "stage 2 fixture HEAD does not match the declared commit SHA",
+                stage="fixture",
+                error_type="fixture_commit_mismatch",
+                review_id=review_id,
+            )
 
     def _resolve_output_root(self, value: Path | str | None) -> Path:
         raw = value if value is not None else self.settings.review_output_root

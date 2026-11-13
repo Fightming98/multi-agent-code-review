@@ -48,11 +48,44 @@ def make_outcome(tmp_path: Path) -> ReviewOutcome:
     )
 
 
+def make_stage2_outcome(tmp_path: Path) -> ReviewOutcome:
+    review_id = "stage2-test-review"
+    report_dir = tmp_path / "reports" / review_id
+    return ReviewOutcome(
+        review_id=review_id,
+        review_status="partial",
+        repository_name="example/project",
+        commit_sha=COMMIT_SHA,
+        report_dir=report_dir,
+        metadata_path=report_dir / "metadata.json",
+        static_analysis_path=report_dir / "static_analysis.json",
+        test_report_path=report_dir / "test_report.json",
+        markdown_path=report_dir / "report.md",
+        report_json_path=report_dir / "report.json",
+        finding_count=2,
+        severity_counts={"medium": 2},
+        test_status="not_executed",
+        llm_status="not_configured",
+        warnings=("tests not executed",),
+        duration_seconds=1.5,
+        review_stage="stage_2",
+        overall_verdict="COMMENT",
+        overall_score=93.75,
+        dimension_scores={
+            "security": 100.0,
+            "quality": 95.0,
+            "performance": 90.0,
+            "testing": None,
+        },
+    )
+
+
 class FakeService:
     def __init__(self, tmp_path: Path) -> None:
         self.tmp_path = tmp_path
         self.requests: list[ReviewRequest] = []
         self.error: Exception | None = None
+        self.outcome: ReviewOutcome | None = None
         self.closed = False
         self.started: threading.Event | None = None
         self.release: threading.Event | None = None
@@ -65,6 +98,8 @@ class FakeService:
             assert self.release.wait(timeout=5)
         if self.error is not None:
             raise self.error
+        if self.outcome is not None:
+            return self.outcome
         return make_outcome(self.tmp_path)
 
     def close(self) -> None:
@@ -112,6 +147,38 @@ def test_post_review_returns_summary_and_uses_service(
     assert service.closed is False
 
 
+def test_post_review_returns_stage2_fields_without_host_paths(
+    tmp_path: Path,
+) -> None:
+    service = FakeService(tmp_path)
+    service.outcome = make_stage2_outcome(tmp_path)
+    with make_client(tmp_path, service) as client:
+        response = client.post(
+            "/api/reviews", json={"repository_url": URL}
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["review_stage"] == "stage_2"
+    assert payload["review_status"] == "partial"
+    assert payload["overall_verdict"] == "COMMENT"
+    assert payload["overall_score"] == 93.75
+    assert payload["dimension_scores"] == {
+        "security": 100.0,
+        "quality": 95.0,
+        "performance": 90.0,
+        "testing": None,
+    }
+    assert payload["report_path"] == "reports/stage2-test-review"
+    assert (
+        payload["report_json_path"]
+        == "reports/stage2-test-review/report.json"
+    )
+    assert payload["llm_status"] == "not_configured"
+    assert str(tmp_path) not in response.text
+    assert "\\" not in payload["report_json_path"]
+
+
 def test_api_rejects_extra_fields_and_missing_url(tmp_path: Path) -> None:
     service = FakeService(tmp_path)
     with make_client(tmp_path, service) as client:
@@ -135,6 +202,7 @@ def test_api_rejects_extra_fields_and_missing_url(tmp_path: Path) -> None:
         ("fixture", 400),
         ("repository", 502),
         ("inspection", 500),
+        ("graph", 500),
         ("aggregation", 500),
         ("reporting", 500),
         ("internal", 500),

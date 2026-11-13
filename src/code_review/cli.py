@@ -1,8 +1,8 @@
-"""阶段 1 命令行入口。
+"""代码审查命令行入口（Stage 1 / Stage 2）。
 
 CLI 只负责参数解析、调用 ``ReviewService`` 与展示结果，不实现任何审查业务
-逻辑。默认输出人类可读摘要；``--json`` 输出机器可读摘要（不包含日志或
-密钥）。
+逻辑。默认走 Stage 2 多 Agent 工作流；``--json`` 输出机器可读摘要（不包含
+日志、密钥或宿主机绝对路径）。
 """
 
 from __future__ import annotations
@@ -24,13 +24,16 @@ from config.settings import Settings
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="code_review.cli",
-        description="阶段 1 代码审查 CLI（单进程、非 Agent 工作流）。",
+        description="代码审查 CLI（阶段 2 默认多 Agent 工作流）。",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     review_parser = subparsers.add_parser(
         "review",
         help="审查一个 GitHub 仓库",
-        description="获取 GitHub 仓库、固定 Commit SHA 并生成四件基础产物。",
+        description=(
+            "获取 GitHub 仓库、固定 Commit SHA 并在进程内执行多 Agent "
+            "审查，生成五件报告产物。"
+        ),
     )
     review_parser.add_argument(
         "repository_url",
@@ -95,10 +98,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _outcome_payload(outcome: ReviewOutcome) -> dict[str, object]:
     return {
         "review_id": outcome.review_id,
+        "review_stage": outcome.review_stage,
         "review_status": outcome.review_status,
+        "overall_verdict": outcome.overall_verdict,
+        "overall_score": outcome.overall_score,
+        "dimension_scores": dict(outcome.dimension_scores),
         "repository_name": outcome.repository_name,
         "commit_sha": outcome.commit_sha,
         "report_dir": str(outcome.report_dir),
+        "report_json_path": (
+            str(outcome.report_json_path)
+            if outcome.report_json_path is not None
+            else None
+        ),
         "artifacts": [str(path) for path in outcome.artifact_paths],
         "finding_count": outcome.finding_count,
         "severity_counts": outcome.severity_counts,
@@ -110,11 +122,27 @@ def _outcome_payload(outcome: ReviewOutcome) -> dict[str, object]:
 
 
 def _print_human(outcome: ReviewOutcome) -> None:
-    print("阶段 1 审查完成")
+    if outcome.review_stage == "stage_2":
+        print("阶段 2 审查完成")
+    else:
+        print("阶段 1 审查完成")
     print(f"review_id      : {outcome.review_id}")
     print(f"审查状态       : {outcome.review_status}")
     print(f"仓库           : {outcome.repository_name}")
     print(f"Commit SHA     : {outcome.commit_sha or '未提供（可信 Fixture）'}")
+    if outcome.overall_verdict is not None:
+        print(f"审查结论       : {outcome.overall_verdict}")
+    if outcome.overall_score is not None:
+        print(f"综合分         : {outcome.overall_score:.1f}")
+    if outcome.dimension_scores:
+        print(
+            "维度评分       : "
+            + ", ".join(
+                f"{name}="
+                + ("N/A" if score is None else f"{score:.1f}")
+                for name, score in outcome.dimension_scores.items()
+            )
+        )
     print(f"Finding 数量   : {outcome.finding_count}")
     if outcome.severity_counts:
         print(

@@ -1,8 +1,8 @@
-"""阶段 1 FastAPI 受控同步入口。
+"""FastAPI 受控同步入口（Stage 1 / Stage 2）。
 
 API 只负责 HTTP 参数校验、并发限流与响应转换；实际审查全部交给同一个
-``ReviewService``。阶段 1 不引入 Redis / ARQ，HTTP 请求在受控的
-单进程、单并发槽位内同步执行。
+``ReviewService``，默认执行 Stage 2 多 Agent 工作流。本阶段不引入
+Redis / ARQ，HTTP 请求在受控的单进程、单并发槽位内同步执行。
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -34,15 +35,20 @@ class ReviewRequestModel(BaseModel):
 
 
 class ReviewResponseModel(BaseModel):
-    """HTTP 审查响应摘要。"""
+    """HTTP 审查响应摘要；路径字段只返回相对输出根的安全引用。"""
 
     model_config = ConfigDict(extra="forbid")
 
     review_id: str
+    review_stage: Literal["stage_1", "stage_2"] = "stage_1"
     review_status: str
+    overall_verdict: str | None = None
+    overall_score: float | None = None
+    dimension_scores: dict[str, float | None] = Field(default_factory=dict)
     repository_name: str
     commit_sha: str | None
     report_path: str
+    report_json_path: str | None = None
     finding_count: int
     severity_counts: dict[str, int]
     test_status: str
@@ -72,11 +78,11 @@ def create_app(
                 review_service.close()
 
     app = FastAPI(
-        title="Multi-Agent Code Review (Stage 1)",
-        version="0.1.0",
+        title="Multi-Agent Code Review (Stage 2)",
+        version="0.2.0",
         description=(
-            "阶段 1 受控同步入口：只做参数校验与响应转换，"
-            "审查逻辑由 ReviewService 承担。"
+            "同步受控入口：只做参数校验与响应转换，审查逻辑由 ReviewService "
+            "承担；默认执行 Stage 2 多 Agent 工作流。"
         ),
         lifespan=lifespan,
     )
@@ -133,12 +139,22 @@ def _to_response(
     outcome: ReviewOutcome,
     settings: Settings,
 ) -> ReviewResponseModel:
+    report_path = _report_reference(settings, outcome.review_id)
     return ReviewResponseModel(
         review_id=outcome.review_id,
+        review_stage=outcome.review_stage,
         review_status=outcome.review_status,
+        overall_verdict=outcome.overall_verdict,
+        overall_score=outcome.overall_score,
+        dimension_scores=dict(outcome.dimension_scores),
         repository_name=outcome.repository_name,
         commit_sha=outcome.commit_sha,
-        report_path=_report_reference(settings, outcome.review_id),
+        report_path=report_path,
+        report_json_path=(
+            f"{report_path}/report.json"
+            if outcome.report_json_path is not None
+            else None
+        ),
         finding_count=outcome.finding_count,
         severity_counts=outcome.severity_counts,
         test_status=outcome.test_status,
@@ -163,6 +179,7 @@ def _to_http_exception(exc: ReviewServiceError) -> HTTPException:
         "fixture": 400,
         "repository": 502,
         "inspection": 500,
+        "graph": 500,
         "aggregation": 500,
         "reporting": 500,
         "internal": 500,

@@ -1,7 +1,7 @@
-"""阶段 1 报告产物层。
+"""Stage 1 与 Stage 2 报告产物层。
 
-本包只定义阶段 1 专用的产物模型、产物生成器与 Markdown 渲染器，不构造
-阶段 0 的 ``ReviewReport``，也不生成 ``report.json``。
+Stage 1 的模型、生成器与 Markdown 渲染器保持冻结；Stage 2 新增五件产物
+模型与生成器，不改变 Stage 1 的四件产物行为。
 """
 
 from .artifact_models import (
@@ -36,6 +36,19 @@ from .report_generator import (
     ReportOutputError,
     ReviewArtifactInput,
 )
+from .stage2_models import (
+    Stage2MetadataArtifact,
+    Stage2StaticAnalysisArtifact,
+    Stage2TestReportArtifact,
+)
+from .stage2_report_generator import (
+    Stage2ArtifactInput,
+    Stage2ReportArtifacts,
+    Stage2ReportGenerationError,
+    Stage2ReportGenerator,
+    Stage2ReportOutputError,
+    render_stage2_markdown,
+)
 
 __all__ = [
     "ARTIFACT_SCHEMA_VERSION",
@@ -57,6 +70,14 @@ __all__ = [
     "ReportGenerator",
     "ReportOutputError",
     "ReviewArtifactInput",
+    "Stage2ArtifactInput",
+    "Stage2MetadataArtifact",
+    "Stage2ReportArtifacts",
+    "Stage2ReportGenerationError",
+    "Stage2ReportGenerator",
+    "Stage2ReportOutputError",
+    "Stage2StaticAnalysisArtifact",
+    "Stage2TestReportArtifact",
     "StaticAnalysisArtifact",
     "StaticAnalysisStatisticsArtifact",
     "TestCountsArtifact",
@@ -66,4 +87,5 @@ __all__ = [
     "TestReportArtifact",
     "ToolRunArtifact",
     "render_markdown",
+    "render_stage2_markdown",
 ]
