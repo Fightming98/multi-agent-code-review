@@ -18,7 +18,6 @@ from typing import Any
 from code_review.agents.contracts import ArtifactData, UsageSummary
 from code_review.agents.manager import DIMENSIONS
 from code_review.graph import (
-    PLACEHOLDER_REVIEW_STATUS,
     build_review_graph,
     run_review_graph,
 )
@@ -81,9 +80,17 @@ def test_full_pipeline_fans_out_and_fans_in(tmp_path: Path) -> None:
     output = run_pipeline(workspace)
 
     assert output["review_id"] == REVIEW_ID
-    assert output["review_status"] == PLACEHOLDER_REVIEW_STATUS
-    assert output["review_report"] is None
-    assert output["review_statistics"]["implemented"] is False
+    assert output["review_status"] == "completed"
+    report = output["review_report"]
+    assert report is not None
+    assert report.report_status == "completed"
+    assert report.overall_verdict == "APPROVE"
+    assert report.overall_score == 100.0
+    assert report.findings == []
+    assert report.rejected_findings == []
+    assert set(report.agent_results) == set(DIMENSIONS)
+    assert output["review_statistics"]["implemented"] is True
+    assert output["review_statistics"]["agent_task_count"] == 4
     assert output["review_statistics"]["aggregated_dimensions"] == sorted(
         DIMENSIONS
     )
@@ -215,8 +222,18 @@ def test_partial_agent_keeps_tool_evidence(tmp_path: Path) -> None:
     assert output["quality_task"].status == "completed"
     assert output["quality_task"].task_id in output["completed_tasks"]
     assert output["failed_tasks"] == []
-    assert output["review_report"] is None
-    assert output["review_status"] == PLACEHOLDER_REVIEW_STATUS
+
+    # 终审保留 partial 状态；合成 Finding 的位置非法，因此被拒绝而非计分。
+    report = output["review_report"]
+    assert report is not None
+    assert report.report_status == "partial"
+    assert report.overall_verdict == "COMMENT"
+    assert report.dimension_scores["quality"].status == "partial"
+    assert report.dimension_scores["quality"].score == 100.0
+    assert [item.finding_id for item in report.rejected_findings] == [
+        "QUA-0001"
+    ]
+    assert output["review_status"] == "completed"
 
 
 def test_external_testing_not_executed_is_completed(tmp_path: Path) -> None:
@@ -254,11 +271,20 @@ def test_external_testing_not_executed_is_completed(tmp_path: Path) -> None:
         "test_report.json#/result_status"
     ) == "completed"
 
-    # D-12：外部仓库未执行测试不构成 Agent 失败；本阶段仍只是占位节点。
+    # D-12：外部仓库未执行测试不构成 Agent 失败；测试维度无法评分，报告为 partial。
     assert output["execution_summary"].completed_tasks == 4
     assert output["execution_summary"].failed_tasks == 0
-    assert output["review_report"] is None
-    assert output["review_status"] == PLACEHOLDER_REVIEW_STATUS
+    report = output["review_report"]
+    assert report is not None
+    assert report.report_status == "partial"
+    assert report.overall_verdict == "COMMENT"
+    assert report.dimension_scores["testing"].score is None
+    assert report.dimension_scores["testing"].reason
+    assert report.test_summary.execution_status == "not_executed"
+    assert report.test_summary.reason == (
+        "external repository tests are not executed"
+    )
+    assert output["review_status"] == "completed"
 
 
 def test_single_worker_failure_keeps_other_results(tmp_path: Path) -> None:
@@ -293,7 +319,13 @@ def test_single_worker_failure_keeps_other_results(tmp_path: Path) -> None:
     assert artifact_data.resolve(
         "static_analysis.json#/agents/security/result_status"
     ) == "completed"
-    assert output["review_status"] == PLACEHOLDER_REVIEW_STATUS
+    report = output["review_report"]
+    assert report is not None
+    assert report.report_status == "partial"
+    assert report.overall_verdict == "COMMENT"
+    assert report.dimension_scores["performance"].score is None
+    assert report.dimension_scores["performance"].status == "failed"
+    assert output["review_status"] == "completed"
     assert snapshot(workspace) == before
 
 
@@ -315,7 +347,9 @@ def test_consecutive_runs_do_not_share_state(tmp_path: Path) -> None:
         )
     assert len(second["completed_tasks"]) == 4
     assert second["failed_tasks"] == []
-    assert second["review_status"] == PLACEHOLDER_REVIEW_STATUS
+    assert second["review_status"] == "completed"
+    assert second["review_report"] is not None
+    assert second["review_report"].overall_verdict == "APPROVE"
 
 
 def test_sync_entrypoint_runs_the_same_graph(tmp_path: Path) -> None:
@@ -326,8 +360,9 @@ def test_sync_entrypoint_runs_the_same_graph(tmp_path: Path) -> None:
         make_review_state(workspace.resolve()),
     )
 
-    assert output["review_status"] == PLACEHOLDER_REVIEW_STATUS
-    assert output["review_report"] is None
+    assert output["review_status"] == "completed"
+    assert output["review_report"] is not None
+    assert output["review_report"].report_status == "completed"
     assert set(output["agent_results"]) == set(DIMENSIONS)
     assert set(output["completed_tasks"]) == {
         output[f"{dimension}_task"].task_id for dimension in DIMENSIONS

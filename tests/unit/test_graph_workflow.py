@@ -18,7 +18,6 @@ from code_review.agents.contracts import (
 from code_review.agents.manager import DIMENSIONS, ManagerAgent, TaskPlan
 from code_review.graph import (
     GRAPH_NODE_NAMES,
-    PLACEHOLDER_REVIEW_STATUS,
     GraphDependencies,
     build_review_graph,
     dispatch_workers,
@@ -297,33 +296,35 @@ class TestManagerAggregateNode:
             manager_aggregate_node(state, manager=ManagerAgent())
 
 
-class TestFinalReviewerPlaceholder:
-    def test_marks_itself_as_not_implemented(self, tmp_path: Path) -> None:
+class TestFinalReviewerNode:
+    def test_builds_report_from_aggregated_state(
+        self, tmp_path: Path
+    ) -> None:
         state = aggregated_state(tmp_path)
-        state["artifact_data"] = ArtifactData()
-        state["agent_results"] = {
-            dimension: make_plan_execution(
-                state["task_plan"], dimension
-            ).result
-            for dimension in DIMENSIONS
-        }
+        state.update(manager_aggregate_node(state, manager=ManagerAgent()))
 
         update = final_reviewer_node(state)
 
-        assert update["review_report"] is None
-        assert update["review_status"] == PLACEHOLDER_REVIEW_STATUS
-        statistics = update["review_statistics"]
-        assert statistics["implemented"] is False
-        assert statistics["final_reviewer"] == "placeholder"
-        assert statistics["stage"] == "2.3"
-        assert statistics["artifact_data_available"] is True
-        assert statistics["aggregated_dimensions"] == sorted(DIMENSIONS)
-        assert "Stage 2.4" in statistics["note"]
+        report = update["review_report"]
+        assert report is not None
+        assert report.report_status == "completed"
+        assert report.overall_verdict == "APPROVE"
+        assert set(report.agent_results) == set(DIMENSIONS)
+        assert update["review_status"] == "completed"
 
-    def test_initial_state_has_no_artifact_yet(self, tmp_path: Path) -> None:
-        update = final_reviewer_node(make_review_state(tmp_path.resolve()))
-        assert update["review_statistics"]["artifact_data_available"] is False
-        assert update["review_statistics"]["aggregated_dimensions"] == []
+        statistics = update["review_statistics"]
+        assert statistics["implemented"] is True
+        assert statistics["final_reviewer"] == "implemented"
+        assert statistics["stage"] == "2.4"
+        assert statistics["artifact_data_available"] is True
+        assert statistics["agent_task_count"] == 4
+        assert statistics["aggregated_dimensions"] == sorted(DIMENSIONS)
+
+    def test_initial_state_without_artifacts_is_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        with pytest.raises(ReviewStateError):
+            final_reviewer_node(make_review_state(tmp_path.resolve()))
 
 
 class TestFullGraph:
@@ -347,11 +348,13 @@ class TestFullGraph:
             for index, event in enumerate(events)
             if event == "worker_node_finished"
         )
-        assert events[-1] == "final_reviewer_placeholder"
+        assert events[-1] == "final_review_completed"
 
-        assert output["review_status"] == PLACEHOLDER_REVIEW_STATUS
-        assert output["review_report"] is None
-        assert output["review_statistics"]["implemented"] is False
+        assert output["review_status"] == "completed"
+        assert output["review_report"] is not None
+        assert output["review_report"].report_status == "completed"
+        assert output["review_report"].overall_verdict == "APPROVE"
+        assert output["review_statistics"]["implemented"] is True
         assert set(output["agent_results"]) == set(DIMENSIONS)
         assert len(output["completed_tasks"]) == 4
         assert output["failed_tasks"] == []
@@ -417,9 +420,14 @@ class TestFullGraph:
         assert output["artifact_data"].resolve(
             "static_analysis.json#/agents/security"
         )["result_status"] == "failed"
-        assert output["review_status"] == PLACEHOLDER_REVIEW_STATUS
+        assert output["review_status"] == "completed"
+        assert output["review_report"].report_status == "partial"
+        assert output["review_report"].overall_verdict == "COMMENT"
+        assert (
+            output["review_report"].dimension_scores["security"].score is None
+        )
 
-    def test_all_workers_failed_still_reaches_placeholder(
+    def test_all_workers_failed_still_produces_partial_report(
         self, tmp_path: Path
     ) -> None:
         graph = build_review_graph(
@@ -446,8 +454,13 @@ class TestFullGraph:
         )
         assert output["execution_summary"].failed_tasks == 4
         assert output["execution_summary"].completed_tasks == 0
-        assert output["review_status"] == PLACEHOLDER_REVIEW_STATUS
-        assert output["review_report"] is None
+        assert output["review_status"] == "completed"
+        report = output["review_report"]
+        assert report is not None
+        assert report.report_status == "partial"
+        assert report.overall_score is None
+        assert report.overall_verdict == "COMMENT"
+        assert report.verdict_reasons
 
     def test_manager_planning_failure_fails_the_run(
         self, tmp_path: Path
@@ -514,7 +527,9 @@ class TestRunReviewGraph:
             make_graph_dependencies(),
             make_review_state(tmp_path.resolve()),
         )
-        assert output["review_status"] == PLACEHOLDER_REVIEW_STATUS
+        assert output["review_status"] == "completed"
+        assert output["review_report"] is not None
+        assert output["review_report"].review_id == output["review_id"]
 
     def test_sync_runner_rejects_running_loop(
         self, tmp_path: Path

@@ -24,6 +24,7 @@ from code_review.agents.contracts import (
     WorkerTiming,
 )
 from code_review.agents.manager import AGENT_SPECS, ManagerAgent, TaskPlan
+from code_review.agents.reviewer import FinalReviewRequest
 from code_review.graph.state import (
     RepositoryContext,
     ReviewState,
@@ -31,7 +32,7 @@ from code_review.graph.state import (
 )
 from code_review.graph.workflow import GraphDependencies
 from code_review.reporting.report_generator import InventorySummary
-from code_review.schemas.report import TestSummary
+from code_review.schemas.report import ExecutionSummary, TestSummary
 from code_review.schemas.result import AgentResult, Finding, ToolEvidence
 from code_review.schemas.task import AgentTask, ErrorInfo
 from code_review.tools.base import (
@@ -942,4 +943,137 @@ def make_graph_dependencies(
         quality_agent=agents["quality"],
         performance_agent=agents["performance"],
         testing_agent=agents["testing"],
+    )
+
+
+# ----------------------------------------------------------------------
+# Stage 2.4 Final Reviewer helpers
+
+DIMENSION_AGENT_NAMES: dict[str, str] = {
+    dimension: agent_name
+    for dimension, agent_name, _, _ in AGENT_SPECS
+}
+
+
+def make_dimension_task(dimension: str) -> AgentTask:
+    """构造与 Manager 计划同形的单个专业任务。"""
+
+    for dim, agent_name, task_type, description in AGENT_SPECS:
+        if dim == dimension:
+            return make_agent_task(
+                agent_name=agent_name,
+                task_type=task_type,
+                task_id=f"task-{dimension}",
+                description=description,
+            )
+    raise ValueError(f"unknown dimension: {dimension}")
+
+
+def make_dimension_result(
+    dimension: str,
+    *,
+    status: str = "completed",
+    findings: list[Finding] | None = None,
+    error: ErrorInfo | None = None,
+    execution_time: float = 0.0,
+) -> AgentResult:
+    """构造与 Manager 计划对应的单个 AgentResult。"""
+
+    return make_agent_result(
+        make_dimension_task(dimension),
+        status=status,
+        findings=findings,
+        error=error,
+        execution_time=execution_time,
+    )
+
+
+def make_static_analysis(
+    *,
+    result_statuses: Mapping[str, str] | None = None,
+    tool_statuses: Mapping[str, Mapping[str, str]] | None = None,
+    extra_findings: Mapping[str, Mapping[str, list[dict[str, Any]]]] | None = None,
+) -> dict[str, Any]:
+    """构造 Manager 聚合后的完整 ``static_analysis`` 证据块。"""
+
+    statuses = dict(result_statuses or {})
+    status_overrides = dict(tool_statuses or {})
+    extras = dict(extra_findings or {})
+    agents: dict[str, Any] = {}
+    for dimension, agent_name, _, _ in AGENT_SPECS:
+        if dimension == "testing":
+            tools: dict[str, Any] = {}
+        else:
+            tools = make_dimension_evidence(dimension)["tools"]
+            for tool_name, block in tools.items():
+                block["execution_status"] = status_overrides.get(
+                    dimension, {}
+                ).get(tool_name, block.get("execution_status", "findings"))
+                extra = extras.get(dimension, {}).get(tool_name)
+                if extra:
+                    block["findings"].extend(extra)
+        agents[dimension] = {
+            "agent_name": agent_name,
+            "result_status": statuses.get(dimension, "completed"),
+            "warnings": [],
+            "tools": tools,
+        }
+    return {"schema_version": "1.0", "agents": agents}
+
+
+def make_stage24_artifact_data(
+    *,
+    result_statuses: Mapping[str, str] | None = None,
+    tool_statuses: Mapping[str, Mapping[str, str]] | None = None,
+    extra_findings: Mapping[str, Mapping[str, list[dict[str, Any]]]] | None = None,
+    test_report: dict[str, Any] | None = None,
+) -> ArtifactData:
+    return ArtifactData(
+        static_analysis=make_static_analysis(
+            result_statuses=result_statuses,
+            tool_statuses=tool_statuses,
+            extra_findings=extra_findings,
+        ),
+        test_report=(
+            test_report if test_report is not None else make_test_report_block()
+        ),
+    )
+
+
+def make_final_review_request(
+    workspace_path: Path,
+    *,
+    results: Mapping[str, AgentResult] | None = None,
+    artifact_data: ArtifactData | None = None,
+    usage: UsageSummary | None = None,
+    execution_summary: ExecutionSummary | None = None,
+    allowed_files: tuple[str, ...] = ("pkg/app.py", "tests/test_app.py"),
+    repository: RepositoryContext | None = None,
+    rules: ReviewRules | None = None,
+    review_id: str = REVIEW_ID,
+    commit_sha: str = COMMIT_SHA,
+) -> FinalReviewRequest:
+    """构造 Final Reviewer 的完整输入；默认四维 completed、无 Finding。"""
+
+    resolved_results: dict[str, AgentResult] = {}
+    for dimension, agent_name, task_type, _ in AGENT_SPECS:
+        if results is not None and dimension in results:
+            resolved_results[dimension] = results[dimension]
+            continue
+        resolved_results[dimension] = make_dimension_result(dimension)
+    context = repository or make_repository_context()
+    return FinalReviewRequest(
+        review_id=review_id,
+        commit_sha=commit_sha,
+        repository=context.repository_name,
+        repository_url=context.repository_url,
+        branch=context.branch,
+        language=context.language,
+        workspace_path=workspace_path,
+        allowed_files=allowed_files,
+        rules=rules or make_review_rules(),
+        agent_results=resolved_results,
+        artifact_data=artifact_data or make_stage24_artifact_data(),
+        usage_summary=usage or UsageSummary(),
+        execution_summary=execution_summary,
     )

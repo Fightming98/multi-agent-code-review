@@ -1,4 +1,4 @@
-"""Stage 2.3 LangGraph 节点：Manager、四个 Worker 与占位 Final Reviewer。
+"""Stage 2.4 LangGraph 节点：Manager、四个 Worker 与 Final Reviewer。
 
 并发写入约束（审计计划 §5.1/§5.4）：
 
@@ -7,7 +7,8 @@
   ``worker_timings`` / ``warnings`` 四个 Reducer 列表更新；
 - ``agent_results``、``artifact_data``、``usage_summary``、
   ``execution_summary`` 只由 ``manager_aggregate`` 单写者返回；
-- ``final_reviewer`` 在 Stage 2.3 只是占位接口，不生成 ``ReviewReport``。
+- ``final_reviewer`` 是独立节点但**不是 AgentTask**：不创建 task_id，不增加
+  任务总数；它只读取 State 中的四个 AgentResult 与内存 ``ArtifactData``。
 
 本模块不访问网络、不调用真实 LLM、不克隆或写入仓库。
 """
@@ -23,19 +24,26 @@ from langgraph.types import Send
 from code_review.agents.base import BaseAgent
 from code_review.agents.contracts import (
     AgentExecution,
+    ArtifactData,
     ContractValidationError,
+    UsageSummary,
     WorkerDispatch,
     WorkerEvidence,
     WorkerRuntime,
     WorkerTiming,
 )
 from code_review.agents.manager import DIMENSIONS, ManagerAgent, TaskPlan
+from code_review.agents.reviewer import (
+    REVIEW_STATUS_COMPLETED,
+    FinalReviewer,
+    FinalReviewRequest,
+)
 from code_review.graph.state import (
-    PLACEHOLDER_REVIEW_STATUS,
     RepositoryContext,
     ReviewState,
     ReviewStateError,
 )
+from code_review.schemas.report import ExecutionSummary
 from code_review.schemas.result import AgentResult
 from code_review.schemas.task import AgentTask, ErrorInfo, utc_now
 from code_review.services.redaction import redact_sensitive_text
@@ -373,38 +381,78 @@ def _fallback_timing(task: AgentTask, result: AgentResult) -> WorkerTiming:
 
 
 # ----------------------------------------------------------------------
-# Final Reviewer placeholder
+# Final Reviewer
 
 
 def final_reviewer_node(state: ReviewState) -> dict[str, object]:
-    """Stage 2.3 占位节点：只标注未实现状态，不生成任何报告结论。"""
+    """真实 Final Reviewer：证据验证、去重、评分、verdict 与报告。
 
+    该节点不是 AgentTask：不创建 task_id，也不改变四个专业 Agent 的任务
+    总数。失败时异常直接向上抛出，由调用方判定整次审查失败，不伪造报告。
+    """
+
+    review_id = _required_str(state, "review_id")
+    repository = _required_repository(state)
     agent_results = state.get("agent_results")
-    aggregated_dimensions = (
-        sorted(agent_results) if isinstance(agent_results, dict) else []
-    )
+    if not isinstance(agent_results, dict) or not agent_results:
+        raise ReviewStateError(
+            "ReviewState.agent_results must be provided by manager_aggregate"
+        )
     artifact_data = state.get("artifact_data")
-    review_id = state.get("review_id")
+    if not isinstance(artifact_data, ArtifactData):
+        raise ReviewStateError(
+            "ReviewState.artifact_data must be built by manager_aggregate "
+            "before final review"
+        )
+    usage_summary = state.get("usage_summary")
+    if not isinstance(usage_summary, UsageSummary):
+        raise ReviewStateError(
+            "ReviewState.usage_summary must be provided by manager_aggregate"
+        )
+    execution_summary = state.get("execution_summary")
+    if execution_summary is not None and not isinstance(
+        execution_summary, ExecutionSummary
+    ):
+        raise ReviewStateError(
+            "ReviewState.execution_summary must be an ExecutionSummary"
+        )
+
+    request = FinalReviewRequest(
+        review_id=review_id,
+        trace_id=state.get("trace_id"),
+        commit_sha=_required_str(state, "commit_sha"),
+        repository=repository.repository_name,
+        repository_url=repository.repository_url,
+        branch=repository.branch,
+        language=repository.language,
+        workspace_path=Path(_required_str(state, "workspace_path")),
+        allowed_files=tuple(state.get("allowed_files") or ()),
+        rules=_required_rules(state),
+        agent_results=agent_results,
+        artifact_data=artifact_data,
+        usage_summary=usage_summary,
+        execution_summary=execution_summary,
+        warnings=tuple(state.get("warnings") or ()),
+    )
+    outcome = FinalReviewer().review(request)
 
     LOGGER.info(
-        "final_reviewer_placeholder",
+        "final_review_completed",
         review_id=review_id,
-        aggregated_dimensions=aggregated_dimensions,
+        report_status=outcome.report.report_status,
+        overall_verdict=outcome.report.overall_verdict,
+        overall_score=outcome.report.overall_score,
+        findings=len(outcome.report.findings),
+        rejected_findings=len(outcome.report.rejected_findings),
     )
     return {
-        "review_report": None,
-        "review_statistics": {
-            "final_reviewer": "placeholder",
-            "stage": "2.3",
-            "implemented": False,
-            "aggregated_dimensions": aggregated_dimensions,
-            "artifact_data_available": artifact_data is not None,
-            "note": (
-                "evidence validation, deduplication, scoring and verdict "
-                "are implemented in Stage 2.4"
-            ),
-        },
-        "review_status": PLACEHOLDER_REVIEW_STATUS,
+        "review_report": outcome.report,
+        "review_statistics": outcome.statistics,
+        "review_status": (
+            outcome.review_status
+            if outcome.review_status
+            else REVIEW_STATUS_COMPLETED
+        ),
     }
 
 
