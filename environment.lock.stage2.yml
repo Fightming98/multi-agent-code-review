@@ -1,9 +1,10 @@
 # Stage 2 Windows 环境快照（非跨平台锁文件）
-# 生成日期: 2026-11-12
+# 生成日期: 2026-11-13
 # 生成命令: conda env export -n multi-agent-review --no-builds（已移除 prefix 行）
-# 适用平台: Windows-11-10.0.26100-SP0 / Python 3.12.16
+# 适用平台: Windows-11-10.0.26100-SP0
+# Python: 3.12.16
 # LangGraph: 1.2.19（被动依赖 langchain-core 1.8.0 / langsmith 0.14.17）
-# 说明: 本文件仅记录 Stage 2.3 完成时的实际环境；不得覆盖 Stage 1 的 environment.lock.yml。
+# 说明: 本文件记录 Stage 2.6 验收时的实际环境；不得覆盖 Stage 1 的 environment.lock.yml。
 name: multi-agent-review
 channels:
   - defaults

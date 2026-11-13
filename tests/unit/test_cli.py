@@ -14,6 +14,7 @@ from code_review.services.review_service import (
     ReviewRequest,
     ReviewServiceError,
 )
+from config.settings import Settings
 from tests.stage1_helpers import COMMIT_SHA
 
 URL = "https://github.com/example/project"
@@ -143,6 +144,31 @@ def test_cli_delegates_to_review_service(
     assert "metadata.json" in output
     assert "report.md" in output
     assert "not_executed" in output
+
+
+def test_cli_real_llm_requires_complete_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    FakeService.instances = []
+    settings = Settings(
+        _env_file=None,
+        llm_provider="openai_compatible",
+        llm_base_url=None,
+        llm_api_key=None,
+        llm_model=None,
+    )
+    monkeypatch.setattr(cli, "Settings", lambda: settings)
+    monkeypatch.setattr(cli, "ReviewService", FakeService)
+
+    exit_code = cli.main(["review", URL, "--real-llm"])
+
+    assert exit_code == 1
+    error = capsys.readouterr().err
+    assert "error[llm]" in error
+    assert "LLM_BASE_URL" in error
+    assert "sk-" not in error
+    assert FakeService.instances == []
 
 
 def test_cli_json_output_is_machine_readable(

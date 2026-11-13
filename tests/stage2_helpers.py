@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -46,6 +47,7 @@ from code_review.tools.test_runner import (
     TestExecutionStatus,
     TestRecord,
 )
+from config.llm_pricing import ModelPricing
 from config.review_rules import ReviewRules, load_review_rules
 
 NOW = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
@@ -913,6 +915,7 @@ def make_graph_dependencies(
     statuses: Mapping[str, str] | None = None,
     factories: Mapping[str, Callable[[WorkerDispatch], AgentRunOutput]]
     | None = None,
+    model_pricing: ModelPricing | None = None,
 ) -> GraphDependencies:
     """构造四个 FakeAgent 组成的图依赖；可按维度配置延迟、异常与状态。"""
 
@@ -943,6 +946,7 @@ def make_graph_dependencies(
         quality_agent=agents["quality"],
         performance_agent=agents["performance"],
         testing_agent=agents["testing"],
+        model_pricing=model_pricing,
     )
 
 
@@ -1046,6 +1050,7 @@ def make_final_review_request(
     results: Mapping[str, AgentResult] | None = None,
     artifact_data: ArtifactData | None = None,
     usage: UsageSummary | None = None,
+    model_pricing: ModelPricing | None = None,
     execution_summary: ExecutionSummary | None = None,
     allowed_files: tuple[str, ...] = ("pkg/app.py", "tests/test_app.py"),
     repository: RepositoryContext | None = None,
@@ -1075,5 +1080,183 @@ def make_final_review_request(
         agent_results=resolved_results,
         artifact_data=artifact_data or make_stage24_artifact_data(),
         usage_summary=usage or UsageSummary(),
+        model_pricing=model_pricing,
         execution_summary=execution_summary,
     )
+
+
+# ----------------------------------------------------------------------
+# Stage 2.6 fixture / Fake LLM helpers
+
+
+SECURITY_PROMPT_MARKER = "# SecurityAgent Prompt"
+QUALITY_PROMPT_MARKER = "# QualityAgent Prompt"
+PERFORMANCE_PROMPT_MARKER = "# PerformanceAgent Prompt"
+TESTING_PROMPT_MARKER = "# TestingAgent Prompt"
+
+
+def make_llm_finding_proposal(
+    *,
+    category: str,
+    severity: str = "medium",
+    title: str = "Fake LLM finding",
+    description: str = "Fake LLM finding used by Stage 2.6 tests.",
+    file_path: str | None = None,
+    start_line: int | None = None,
+    end_line: int | None = None,
+    evidence: str = "",
+    tool_evidence: list[dict[str, Any]] | None = None,
+    recommendation: str = "Review the code.",
+    confidence: float = 0.6,
+) -> dict[str, Any]:
+    """构造符合专业 Agent LLM 提案 Schema 的单条 Finding。"""
+
+    proposal: dict[str, Any] = {
+        "category": category,
+        "severity": severity,
+        "title": title,
+        "description": description,
+        "evidence": evidence,
+        "recommendation": recommendation,
+        "confidence": confidence,
+    }
+    if file_path is not None:
+        proposal["file_path"] = file_path
+    if start_line is not None:
+        proposal["start_line"] = start_line
+    if end_line is not None:
+        proposal["end_line"] = end_line
+    if tool_evidence:
+        proposal["tool_evidence"] = list(tool_evidence)
+    return proposal
+
+
+def make_llm_payload(
+    findings: list[dict[str, Any]] | None = None,
+    *,
+    summary: str = "fake LLM analysis",
+    warnings: list[str] | None = None,
+) -> str:
+    """构造专业 Agent 期望的完整 JSON 响应文本。"""
+
+    payload: dict[str, Any] = {
+        "findings": list(findings or []),
+        "summary": summary,
+    }
+    if warnings:
+        payload["warnings"] = list(warnings)
+    return json.dumps(payload, ensure_ascii=False)
+
+
+class RoutedFakeLLMClient:
+    """按 system prompt 标记路由的 Fake LLM，不联网、不读取密钥。
+
+    ``routes`` 的 key 是 Prompt 首行标记（如 ``# QualityAgent Prompt``），
+    value 可以是 JSON 文本或提案列表。未命中的调用返回空 findings。
+    """
+
+    def __init__(
+        self,
+        routes: Mapping[str, str | list[dict[str, Any]]] | None = None,
+        *,
+        default_content: str = '{"findings": [], "summary": "no findings"}',
+        usage: dict[str, int] | None = None,
+        finish_reason: str | None = "stop",
+    ) -> None:
+        self.routes = dict(routes or {})
+        self.default_content = default_content
+        self.usage = usage
+        self.finish_reason = finish_reason
+        self.calls: list[dict[str, Any]] = []
+
+    @property
+    def markers(self) -> list[str]:
+        return [call["marker"] for call in self.calls]
+
+    def complete(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        max_output_tokens: int,
+        temperature: float,
+        timeout_seconds: float,
+    ) -> FakeCompletion:
+        marker = self._match(system_prompt)
+        self.calls.append(
+            {
+                "marker": marker,
+                "system_prompt": system_prompt,
+                "user_prompt": user_prompt,
+                "max_output_tokens": max_output_tokens,
+                "temperature": temperature,
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+        route = self.routes.get(marker)
+        if route is None:
+            content = self.default_content
+        elif isinstance(route, str):
+            content = route
+        else:
+            content = make_llm_payload(route)
+        return FakeCompletion(
+            content=content,
+            finish_reason=self.finish_reason,
+            usage=self.usage,
+        )
+
+    def _match(self, system_prompt: str) -> str:
+        for marker in self.routes:
+            if marker in system_prompt:
+                return marker
+        for marker in (
+            SECURITY_PROMPT_MARKER,
+            QUALITY_PROMPT_MARKER,
+            PERFORMANCE_PROMPT_MARKER,
+            TESTING_PROMPT_MARKER,
+        ):
+            if marker in system_prompt:
+                return marker
+        return "unrouted"
+
+
+def find_source_line(root: Path, relative_path: str, needle: str) -> int:
+    """返回 ``needle`` 在 Fixture 源文件中首次出现的 1-based 行号。"""
+
+    text = (root / relative_path).read_text(encoding="utf-8")
+    for number, line in enumerate(text.splitlines(), start=1):
+        if needle in line:
+            return number
+    raise AssertionError(f"{needle!r} not found in {relative_path}")
+
+
+def source_line_text(root: Path, relative_path: str, line: int) -> str:
+    """读取 Fixture 源文件指定行的原始文本（含缩进）。"""
+
+    lines = (root / relative_path).read_text(encoding="utf-8").splitlines()
+    if line < 1 or line > len(lines):
+        raise AssertionError(f"line {line} out of range for {relative_path}")
+    return lines[line - 1]
+
+
+def resolve_disk_pointer(document: Any, pointer: str) -> Any:
+    """在落盘 JSON 对象上解析 ``<file>#/<fragment>`` 形式的 Pointer。"""
+
+    if not isinstance(pointer, str) or "#" not in pointer:
+        raise AssertionError(f"invalid artifact pointer: {pointer!r}")
+    _, fragment = pointer.split("#", 1)
+    node = document
+    if fragment == "":
+        return node
+    if not fragment.startswith("/"):
+        raise AssertionError(f"invalid pointer fragment: {pointer!r}")
+    for raw_token in fragment[1:].split("/"):
+        token = raw_token.replace("~1", "/").replace("~0", "~")
+        if isinstance(node, list):
+            node = node[int(token)]
+        elif isinstance(node, Mapping):
+            node = node[token]
+        else:
+            raise TypeError(f"pointer does not resolve: {pointer!r}")
+    return node

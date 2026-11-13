@@ -1,0 +1,17 @@
+{
+  "files": {
+    ".gitattributes": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+    "README.md": "21d143a970bc635f726e2654268e701a4e87146d0ee721dca0f160c911488995",
+    "sample_app/__init__.py": "dd5179ed59acabbf8d94bd8112e4e840545d40a7de2fe02402ef5263c7bbbb1a",
+    "sample_app/client_defaults.py": "4ad134245a36618c58330ec8581e4414b58713ff2bebea544ee7813e3c2371df",
+    "sample_app/inventory.py": "20ff87aec84c8427acdabb55ed706cd0ab1dba5aeb9e44ec4917408e1c52138e",
+    "sample_app/processor.py": "a1a0fbc8bc80ddc886c85bdd17fe419e90521dda174cdf3b98a24f9041f9b6da",
+    "sample_app/reporting.py": "d96611fe5403bc0858df0d73b657968b005ee0acd202346a07df5bb92e2e37d5",
+    "sample_app/repository.py": "dbdd563a7bc03f51ea302d8a905a5b2d4d35313154e5211672784f601196d94d",
+    "tests/test_inventory.py": "332c31b5efab67132a8e60d2851c9763adfb51b8ff29d53eabbcf9a36bb2b962",
+    "tests/test_processor.py": "a3c3282d89148d607775c517fb44ea8ce461ba78c0f1a59c1bb3c3e3e96b7ba3",
+    "tests/test_repository.py": "2205c624172dcc95266989b5eee706fcd0d910a26384c4d85b40902bfc34053d"
+  },
+  "fixture_name": "stage2_sample_repo_v1",
+  "version": "1.0.0"
+}

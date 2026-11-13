@@ -28,6 +28,7 @@ from code_review.agents.llm_support import (
     UsageAccumulator,
     build_prompt_projection,
     build_user_prompt,
+    describe_llm_error,
     load_agent_prompt,
     request_json,
     validate_json_fields,
@@ -157,13 +158,17 @@ class PerformanceAgent(BaseAgent):
         usage = UsageSummary()
         llm_error: Exception | None = None
         if self._llm_client is not None:
-            completion, usage, llm_error = await asyncio.to_thread(
+            completion, usage, llm_error, llm_warnings = await asyncio.to_thread(
                 self._call_llm,
                 dispatch,
                 {"radon": _tool_output_text(block)},
             )
+            warnings.extend(llm_warnings)
             if llm_error is not None:
-                warnings.append("llm semantic supplement failed")
+                warnings.append(
+                    "llm semantic supplement failed: "
+                    f"{describe_llm_error(llm_error)}"
+                )
         else:
             warnings.append(
                 "llm client not configured; deterministic tool results only"
@@ -312,14 +317,26 @@ class PerformanceAgent(BaseAgent):
         self,
         dispatch: Any,
         tool_outputs: Mapping[str, str],
-    ) -> tuple[JsonCompletion | None, UsageSummary, Exception | None]:
+    ) -> tuple[
+        JsonCompletion | None,
+        UsageSummary,
+        Exception | None,
+        tuple[str, ...],
+    ]:
         accumulator = UsageAccumulator()
+        projection_warnings: tuple[str, ...] = ()
         try:
             system_prompt = load_agent_prompt("performance")
+            prompt_budget = self.settings.llm_max_input_chars
             projection = build_prompt_projection(
-                dispatch, tool_outputs=tool_outputs
+                dispatch,
+                tool_outputs=tool_outputs,
+                max_prompt_chars=prompt_budget,
             )
-            user_prompt = build_user_prompt(projection)
+            projection_warnings = projection.warnings
+            user_prompt = build_user_prompt(
+                projection, max_chars=prompt_budget
+            )
             completion = request_json(
                 self._llm_client,
                 system_prompt=system_prompt,
@@ -329,9 +346,19 @@ class PerformanceAgent(BaseAgent):
                 timeout_seconds=self.settings.llm_timeout_seconds,
                 accumulator=accumulator,
             )
-            return completion, accumulator.snapshot(), None
+            return (
+                completion,
+                accumulator.snapshot(),
+                None,
+                projection_warnings,
+            )
         except Exception as exc:  # noqa: BLE001 - Provider 异常交由状态机处理
-            return None, accumulator.snapshot(), exc
+            return (
+                None,
+                accumulator.snapshot(),
+                exc,
+                projection_warnings,
+            )
 
     def _llm_findings(
         self,

@@ -47,6 +47,7 @@ from code_review.schemas.report import ExecutionSummary
 from code_review.schemas.result import AgentResult
 from code_review.schemas.task import AgentTask, ErrorInfo, utc_now
 from code_review.services.redaction import redact_sensitive_text
+from config.llm_pricing import ModelPricing
 from config.review_rules import ReviewRules
 
 __all__ = [
@@ -384,7 +385,11 @@ def _fallback_timing(task: AgentTask, result: AgentResult) -> WorkerTiming:
 # Final Reviewer
 
 
-def final_reviewer_node(state: ReviewState) -> dict[str, object]:
+def final_reviewer_node(
+    state: ReviewState,
+    *,
+    model_pricing: ModelPricing | None = None,
+) -> dict[str, object]:
     """真实 Final Reviewer：证据验证、去重、评分、verdict 与报告。
 
     该节点不是 AgentTask：不创建 task_id，也不改变四个专业 Agent 的任务
@@ -431,6 +436,7 @@ def final_reviewer_node(state: ReviewState) -> dict[str, object]:
         agent_results=agent_results,
         artifact_data=artifact_data,
         usage_summary=usage_summary,
+        model_pricing=model_pricing,
         execution_summary=execution_summary,
         warnings=tuple(state.get("warnings") or ()),
     )

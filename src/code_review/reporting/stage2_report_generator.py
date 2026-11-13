@@ -117,13 +117,7 @@ class Stage2ReportGenerator:
         output_root: Path | str,
     ) -> Stage2ReportArtifacts:
         self._validate_source(source)
-
-        # O-1：真实 LLM 调用的成本语义尚未解决，禁止冒充零成本。
-        if source.usage_summary.llm_calls:
-            raise Stage2ReportGenerationError(
-                "stage 2 report generation refused: real LLM usage cannot be "
-                "represented by the frozen CostSummary"
-            )
+        self._validate_cost_consistency(source)
 
         report = _sanitize_report(source.report, source.workspace_path)
         metadata = _sanitize_model(
@@ -262,6 +256,49 @@ class Stage2ReportGenerator:
         ):
             raise Stage2ReportGenerationError(
                 "trusted fixture URL must use fixture://"
+            )
+
+    @staticmethod
+    def _validate_cost_consistency(source: Stage2ArtifactInput) -> None:
+        """报告中的成本必须与真实 usage 一致；不得写零成本掩盖真实调用。"""
+
+        usage = source.usage_summary
+        cost = source.report.cost_summary
+        if usage.llm_calls == 0:
+            if (
+                usage.reported_usage_calls
+                or usage.input_tokens
+                or usage.output_tokens
+            ):
+                raise Stage2ReportGenerationError(
+                    "stage 2 usage summary is inconsistent: tokens or reported "
+                    "usage without LLM calls"
+                )
+            if (
+                cost.total_input_tokens
+                or cost.total_output_tokens
+                or cost.estimated_cost
+            ):
+                raise Stage2ReportGenerationError(
+                    "stage 2 report cost is inconsistent with zero LLM calls"
+                )
+            return
+
+        if usage.reported_usage_calls != usage.llm_calls:
+            raise Stage2ReportGenerationError(
+                "stage 2 report generation refused: LLM usage is incomplete "
+                "and cannot be priced"
+            )
+        if (
+            cost.total_input_tokens != usage.input_tokens
+            or cost.total_output_tokens != usage.output_tokens
+        ):
+            raise Stage2ReportGenerationError(
+                "stage 2 report cost tokens do not match the real usage summary"
+            )
+        if cost.estimated_cost <= 0:
+            raise Stage2ReportGenerationError(
+                "stage 2 report cost must be positive for priced real LLM usage"
             )
 
     def _build_metadata(
@@ -687,7 +724,7 @@ def render_stage2_markdown(
             "",
             f"- 输入 Token：{cost.total_input_tokens}",
             f"- 输出 Token：{cost.total_output_tokens}",
-            f"- 估算成本：{cost.estimated_cost:.2f} {cost.currency}",
+            f"- 估算成本：{_format_cost(cost.estimated_cost)} {cost.currency}",
         ]
     )
 
@@ -744,6 +781,16 @@ def _location(finding: Finding) -> str:
 
 def _format_score(value: float | None) -> str:
     return "N/A" if value is None else f"{value:.1f}"
+
+
+def _format_cost(value: float) -> str:
+    """小成本保留有效数字，避免把真实非零成本显示成 0.00。"""
+
+    if value == 0:
+        return "0.00"
+    if value < 0.01:
+        return f"{value:.6f}"
+    return f"{value:.2f}"
 
 
 def _percent(value: float | None) -> str:

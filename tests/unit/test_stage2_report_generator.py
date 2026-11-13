@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -24,7 +25,7 @@ from code_review.reporting.stage2_report_generator import (
     Stage2ReportGenerationError,
     Stage2ReportGenerator,
 )
-from code_review.schemas.report import ReviewReport
+from code_review.schemas.report import CostSummary, ReviewReport
 from code_review.schemas.result import ToolEvidence
 from tests.stage2_helpers import (
     COMMIT_SHA,
@@ -206,31 +207,63 @@ def test_markdown_shows_one_decimal_while_json_keeps_exact_score(
     assert "综合分：93.8" in markdown
 
 
-def test_generator_refuses_real_llm_usage_without_cost_semantics(
+def test_generator_refuses_mismatched_real_llm_cost(
     tmp_path: Path,
 ) -> None:
     source, _ = build_inputs(tmp_path)
-    source = Stage2ArtifactInput(
-        report=source.report,
-        artifact_data=source.artifact_data,
+    source = replace(
+        source,
         usage_summary=UsageSummary(
             llm_calls=1,
             reported_usage_calls=1,
             input_tokens=100,
             output_tokens=20,
         ),
-        source_type=source.source_type,
-        reviewed_at=source.reviewed_at,
-        inventory=source.inventory,
-        review_duration_seconds=source.review_duration_seconds,
-        warnings=source.warnings,
-        workspace_path=source.workspace_path,
     )
 
-    with pytest.raises(Stage2ReportGenerationError):
+    with pytest.raises(Stage2ReportGenerationError, match="do not match"):
         Stage2ReportGenerator().generate(source, tmp_path / "reports")
 
     assert not (tmp_path / "reports" / source.report.review_id).exists()
+
+
+def test_generator_writes_priced_real_llm_cost(tmp_path: Path) -> None:
+    source, _ = build_inputs(tmp_path)
+    source = replace(
+        source,
+        usage_summary=UsageSummary(
+            llm_calls=1,
+            reported_usage_calls=1,
+            input_tokens=100,
+            output_tokens=20,
+        ),
+        report=source.report.model_copy(
+            update={
+                "cost_summary": CostSummary(
+                    total_input_tokens=100,
+                    total_output_tokens=20,
+                    estimated_cost=0.000045,
+                    currency="USD",
+                )
+            }
+        ),
+    )
+
+    artifacts = Stage2ReportGenerator().generate(
+        source, tmp_path / "reports"
+    )
+
+    report_json = json.loads(
+        artifacts.report_json_path.read_text(encoding="utf-8")
+    )
+    assert report_json["cost_summary"] == {
+        "total_input_tokens": 100,
+        "total_output_tokens": 20,
+        "estimated_cost": 0.000045,
+        "currency": "USD",
+    }
+    markdown = artifacts.markdown_path.read_text(encoding="utf-8")
+    assert "估算成本：0.000045 USD" in markdown
 
 
 def test_generator_refuses_existing_output_directory(tmp_path: Path) -> None:

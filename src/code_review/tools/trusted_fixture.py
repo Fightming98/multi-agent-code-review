@@ -33,7 +33,10 @@ DEFAULT_TRUSTED_FIXTURE_ROOT = (
 FIXTURE_MANIFEST_FILENAME = "FIXTURE_MANIFEST.json"
 
 # 阶段 1 可信 Fixture 白名单（docs/acceptance.md §4.7）。
-APPROVED_TRUSTED_FIXTURE_NAMES = frozenset({"trusted_fixture_v1"})
+# Stage 2.6 仅新增一个明确批准的自有 Fixture；批准规则与校验逻辑不变。
+APPROVED_TRUSTED_FIXTURE_NAMES = frozenset(
+    {"trusted_fixture_v1", "stage2_sample_repo_v1"}
+)
 
 MAX_MANIFEST_BYTES = 1 * 1024 * 1024
 MAX_FIXTURE_FILES = 1_000

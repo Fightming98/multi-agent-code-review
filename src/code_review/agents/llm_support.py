@@ -10,7 +10,7 @@ import json
 import math
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Any
@@ -47,6 +47,15 @@ PROMPT_INJECTION_NOTICE = (
 
 _WINDOWS_ABS_PATH_RE = re.compile(r"(?i)\b[A-Z]:[\\/][^\s\"'<>]*")
 _UNIX_HOME_PATH_RE = re.compile(r"(?<![\w.])/(?:home|Users)/[^\s\"'<>]+")
+# 这些异常的消息由本项目构造，已排除响应正文与凭据；可安全写入证据。
+_SAFE_LLM_ERROR_TYPES = frozenset(
+    {
+        "LLMClientError",
+        "LLMProjectionError",
+        "LLMResponseError",
+        "LLMUsageError",
+    }
+)
 
 
 class LLMProjectionError(ValueError):
@@ -164,13 +173,16 @@ def build_prompt_projection(
     max_source_files: int = MAX_SOURCE_FILES,
     max_source_chars: int = MAX_SOURCE_FILE_CHARS,
     max_tool_output_chars: int = MAX_TOOL_OUTPUT_CHARS,
+    max_prompt_chars: int = MAX_PROMPT_CHARS,
     redactor: Callable[..., str] = redact_sensitive_text,
 ) -> PromptProjection:
     """构建安全投影。
 
     ``source_files`` 未提供时只读取 ``runtime.allowed_files``，并做工作区
     边界检查；提供时只接受这些相对路径，未知/绝对路径直接报错。完整
-    ``AgentTask.input_data`` 永远不会进入投影。
+    ``AgentTask.input_data`` 永远不会进入投影。投影会按 ``max_prompt_chars``
+    省略末尾源码文件，保证序列化后的 user prompt 不超过预算；被省略的
+    文件会记录在 ``warnings`` 中。
     """
     if not isinstance(dispatch, WorkerDispatch):
         raise LLMProjectionError("dispatch must be a WorkerDispatch")
@@ -178,6 +190,8 @@ def build_prompt_projection(
         raise LLMProjectionError("max_source_files must be non-negative")
     if max_source_chars < 1 or max_tool_output_chars < 1:
         raise LLMProjectionError("text limits must be positive")
+    if max_prompt_chars < 1:
+        raise LLMProjectionError("max_prompt_chars must be positive")
 
     runtime = dispatch.runtime
     task = dispatch.task
@@ -224,19 +238,22 @@ def build_prompt_projection(
         redactor=redactor,
         max_chars=MAX_TASK_DESCRIPTION_CHARS,
     )
-    return PromptProjection(
-        agent_name=task.agent_name,
-        task_id=task.task_id,
-        task_type=task.task_type,
-        review_id=task.review_id,
-        commit_sha=runtime.commit_sha,
-        language=runtime.language,
-        task_description=description,
-        allowed_files=allowed,
-        source_files=projected_sources,
-        tool_outputs=projected_tools,
-        rules=rules,
-        warnings=tuple(warnings),
+    return _fit_projection_to_budget(
+        PromptProjection(
+            agent_name=task.agent_name,
+            task_id=task.task_id,
+            task_type=task.task_type,
+            review_id=task.review_id,
+            commit_sha=runtime.commit_sha,
+            language=runtime.language,
+            task_description=description,
+            allowed_files=allowed,
+            source_files=projected_sources,
+            tool_outputs=projected_tools,
+            rules=rules,
+            warnings=tuple(warnings),
+        ),
+        max_prompt_chars=max_prompt_chars,
     )
 
 
@@ -262,6 +279,56 @@ def build_user_prompt(
             f"user prompt exceeds {max_chars} characters; reduce context"
         )
     return text
+
+
+def _fit_projection_to_budget(
+    projection: PromptProjection,
+    *,
+    max_prompt_chars: int,
+) -> PromptProjection:
+    """按确定性顺序省略末尾源码文件，直到 user prompt 落入预算。
+
+    工具输出、规则、任务描述和 allowed_files 不会被裁剪；它们是不可缺少
+    的审计上下文。若省略全部源码后仍超限，说明基础上下文本身过大，直接
+    报错而不是发送截断的无效 Prompt。
+    """
+    remaining = dict(projection.source_files)
+    omitted = 0
+    while True:
+        if omitted == 0:
+            candidate = projection
+        else:
+            budget_warning = (
+                f"prompt budget: {omitted} source file(s) omitted to "
+                f"remain within {max_prompt_chars} characters"
+            )
+            candidate = replace(
+                projection,
+                source_files=remaining,
+                warnings=projection.warnings + (budget_warning,),
+            )
+        try:
+            build_user_prompt(candidate, max_chars=max_prompt_chars)
+        except LLMProjectionError:
+            if not remaining:
+                raise
+            remaining.pop(next(reversed(remaining)))
+            omitted += 1
+            continue
+        return candidate
+
+
+def describe_llm_error(exc: BaseException) -> str:
+    """生成可写入证据的 LLM 失败摘要。
+
+    只展示项目内部定义的 LLM 异常类型及其消息；其他异常只保留类型名，
+    避免把第三方响应正文、请求头或凭据写进报告。
+    """
+    name = type(exc).__name__
+    if name not in _SAFE_LLM_ERROR_TYPES:
+        return name
+    detail = redact_sensitive_text(str(exc), max_chars=200).strip()
+    return f"{name}: {detail}" if detail else name
 
 
 def parse_json_object(

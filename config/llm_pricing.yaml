@@ -1,0 +1,13 @@
+schema_version: "1.0"
+# 价格必须与真实调用的模型 ID 精确匹配；不得用近似模型或默认价格代替。
+# 来源：SiliconFlow 官方模型页（DeepSeek-V3 行，页面发布日期显示为
+# 2026-11-11 UTC；检索日期 2026-11-13）。页面以美元标价。
+# 注意：siliconflow.cn 的定价页当前未列出经典 V3，只列出 V3.1/V3.2；
+# 本条目以 global 官方模型页的精确模型 ID 与价格为准。
+models:
+  deepseek-ai/DeepSeek-V3:
+    input_per_million_tokens: 0.25
+    output_per_million_tokens: 1.00
+    currency: USD
+    source_url: "https://www.siliconflow.com/models/deepseek-ai?q=DeepSeek-V3"
+    retrieved_at: "2026-11-13"

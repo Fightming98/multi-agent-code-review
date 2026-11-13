@@ -37,6 +37,7 @@ from code_review.graph.nodes import (
     manager_plan_node,
 )
 from code_review.graph.state import ReviewState
+from config.llm_pricing import ModelPricing
 
 __all__ = [
     "GRAPH_NODE_NAMES",
@@ -62,6 +63,7 @@ class GraphDependencies:
     quality_agent: BaseAgent
     performance_agent: BaseAgent
     testing_agent: BaseAgent
+    model_pricing: ModelPricing | None = None
     _by_dimension: Mapping[str, BaseAgent] = field(
         init=False,
         repr=False,
@@ -71,6 +73,12 @@ class GraphDependencies:
     def __post_init__(self) -> None:
         if not isinstance(self.manager, ManagerAgent):
             raise TypeError("GraphDependencies.manager must be a ManagerAgent")
+        if self.model_pricing is not None and not isinstance(
+            self.model_pricing, ModelPricing
+        ):
+            raise TypeError(
+                "GraphDependencies.model_pricing must be a ModelPricing or None"
+            )
 
         mapping: dict[str, BaseAgent] = {}
         for dimension, agent_name, task_type, _ in AGENT_SPECS:
@@ -126,7 +134,13 @@ def build_review_graph(
         "manager_aggregate",
         partial(manager_aggregate_node, manager=dependencies.manager),
     )
-    graph.add_node("final_reviewer", final_reviewer_node)
+    graph.add_node(
+        "final_reviewer",
+        partial(
+            final_reviewer_node,
+            model_pricing=dependencies.model_pricing,
+        ),
+    )
 
     graph.add_edge(START, "manager_plan")
     graph.add_conditional_edges(

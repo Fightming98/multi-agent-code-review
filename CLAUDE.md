@@ -4,24 +4,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 仓库现状
 
-这是 **Multi-Agent Code Review System**。阶段 0（工程初始化与需求冻结）于 2026-11-09 验收；阶段 1（单 Agent 代码审查基础）于 2026-11-10 完成并提交（`65af76e`）；阶段 2.1（Agent 基础合同、BaseAgent、Prompt 与规则加载）于 2026-11-12 完成，等待负责人确认后进入 Stage 2.2。五份核心文档自阶段 1 基线修订后冻结：`acceptance.md`、`architecture.md`、`requirements.md`、`workflow.md` 为 v1.1，`task_contracts.md` 为 v1.0。
+这是 **Multi-Agent Code Review System**。阶段 0（工程初始化与需求冻结）于 2026-11-09 验收；阶段 1（单 Agent 代码审查基础）于 2026-11-10 完成并提交（`65af76e`）；Stage 2.1 于 2026-11-12 完成，Stage 2.2～2.5 已分别提交（`d8e3cf0`、`ec0afe2`、`ce1bded`），Stage 2.6（Fixture、端到端、基线与最终验收）已完成，等待负责人验收。五份核心文档自阶段 1 基线修订后冻结：`acceptance.md`、`architecture.md`、`requirements.md`、`workflow.md` 为 v1.1，`task_contracts.md` 为 v1.0。
 
-- 已存在：`docs/*.md`、`environment.yml`、`environment.lock.yml`、`.env.example`、`.gitignore`、`README.md`、`pytest.ini`、`config/settings.py`、`config/review_rules.py`、`config/review_rules.yaml`、`src/code_review/{schemas,tools,services,reporting,api}`、`src/code_review/agents/`（仅基础设施）、`src/code_review/prompts/`、`tests/unit/`、`tests/integration/`
+- 已存在：`docs/*.md`、`environment.yml`、`environment.lock.yml`、`environment.lock.stage2.yml`、`.env.example`、`.gitignore`、`README.md`、`pytest.ini`、`config/settings.py`、`config/review_rules.py`、`config/review_rules.yaml`、`config/llm_pricing.py`、`config/llm_pricing.yaml`、`src/code_review/{schemas,tools,services,reporting,api}`、`src/code_review/agents/`（合同、Manager、四个专业 Agent、Final Reviewer）、`src/code_review/graph/`、`src/code_review/prompts/`、`tests/unit/`、`tests/integration/`、`tests/fixtures/trusted_repo/`、`tests/fixtures/stage2_sample_repo/`
 - 阶段 0 交付：四个核心 Pydantic Schema 与 204 条单元测试
 - 阶段 1 交付：仓库获取/SHA 固定/URL 校验、仓库扫描与文件过滤、Ruff/Bandit/Radon、可信 Fixture Pytest+Coverage、LLM 辅助分析、Finding 聚合、四件报告产物、CLI 与最小同步 FastAPI `POST /api/reviews`
-- 阶段 2.1 交付：Agent 内部 DTO/Protocol、`BaseAgent`、安全 Prompt 投影与 JSON/usage 支持、四个专业 Prompt、`review_rules.yaml` 严格加载器、Fake Agent/Fake LLM 测试设施；**未实现任何具体专业 Agent、Manager、Final Reviewer 或 LangGraph**
-- 尚未创建（Stage 2.2 及以后）：`graph/`、`orchestration/`、`workers/`、`observability/`、`storage/`、`mcp/`、`a2a/`、`external_agents/`，以及 Security/Quality/Performance/Testing Agent、Manager、Final Reviewer、`report.json`、LangGraph 工作流
-- Git：本地 `main` 跟踪 `origin/main`（`Fightming98/multi-agent-code-review`，Public）。`reports/stage0/`、`reports/stage1/`、`reports/stage2_1_acceptance_report.md` 等验收/评审记录纳入版本控制；`reports/stage1-<timestamp>/` 这类真实第三方仓库产物含第三方代码片段与原始工具输出，保留本地并由 `.gitignore` 排除。`Prompt/*` 为本地提示词/裁定记录，不纳入版本控制
+- 阶段 2.1 交付：Agent 内部 DTO/Protocol、`BaseAgent`、安全 Prompt 投影与 JSON/usage 支持、四个专业 Prompt、`review_rules.yaml` 严格加载器、Fake Agent/Fake LLM 测试设施
+- 阶段 2.2～2.6 交付：Manager 与 Security/Quality/Performance/Testing Agent、LangGraph 7 节点并行工作流、Final Reviewer（V1～V7 证据校验、去重、四维评分）、`ReviewService.review_stage2_fixture()`、五件 Stage 2 产物（含 `report.json`）、自有 Fixture 与确定性真实 Git SHA、Stage 2 E2E 与验收报告
+- 尚未创建（Stage 3 及以后）：`orchestration/`、`workers/`、`observability/`、`storage/`、`mcp/`、`a2a/`、`external_agents/`，以及 Redis/ARQ、PostgreSQL、MCP/A2A SDK、OpenTelemetry、LangSmith tracing、Docker
+- Git：本地 `main` 跟踪 `origin/main`（`Fightming98/multi-agent-code-review`，Public）。`reports/stage0/`、`reports/stage1/`、`reports/stage2_*_acceptance_report.md` 等验收/评审记录纳入版本控制；`reports/stage1-<timestamp>/` 这类真实第三方仓库产物含第三方代码片段与原始工具输出，保留本地并由 `.gitignore` 排除。`Prompt/*` 为本地提示词/裁定记录，不纳入版本控制
 
-阶段 2 按 Stage 2.1 → 2.6 逐步实施：2.1 基础合同；2.2 Manager 与四个专业 Agent；2.3 LangGraph StateGraph 并行扇出/扇入；2.4 Final Reviewer、证据验证、去重与评分；2.5 ReviewService 集成、五件报告、CLI/API；2.6 Fixture、端到端、基线与最终验收。每个子阶段完成并提供测试证据后，经负责人确认再进入下一子阶段；未经确认不得提前安装依赖或实现后续阶段。
+阶段 2 已按 Stage 2.1 → 2.6 完成：2.1 基础合同；2.2 Manager 与四个专业 Agent；2.3 LangGraph StateGraph 并行扇出/扇入；2.4 Final Reviewer、证据验证、去重与评分；2.5 ReviewService 集成、五件报告、CLI/API；2.6 Fixture、端到端、基线与最终验收。O-1 已由 `config/llm_pricing.*` 的精确价格表方案解决，真实 LLM 可经 `--real-llm` 进入五件产物链路。Stage 2.6 等待负责人验收；未经确认不得进入 Stage 3、不得新增依赖或实现后续阶段。
 
-阶段 0 未实现、当前仓库仍不存在的内容：
+Stage 3 及以后尚未实现、当前仓库仍不存在的内容：
 
-- LangGraph 工作流、Supervisor-Worker、SubAgent、Announce、重试调度、并发控制
-- LangGraph、LangChain、Redis、ARQ、PostgreSQL、SQLAlchemy、MCP SDK、A2A SDK、OpenTelemetry、LangSmith、Streamlit、Docker
-- 真实多 Agent 评审、外部 A2A Agent、真实 `report.json`
+- SubAgent、Announce、任务生命周期、重试调度、并发控制、LangGraph Checkpointer 持久化恢复
+- Redis、ARQ、PostgreSQL、SQLAlchemy、MCP SDK、A2A SDK、OpenTelemetry、LangSmith tracing、Streamlit、Docker
+- 外部 A2A Agent；默认评审路径不调用真实 LLM（`--real-llm` 为显式可选入口，O-1 已解决）
 
-依赖现状：阶段 0 基础依赖 8 个（`fastapi uvicorn pydantic pydantic-settings python-dotenv pytest httpx structlog`）；阶段 1 已固定 `ruff==0.17.4`、`bandit==1.9.4`、`radon==6.0.1`、`coverage==7.17.2`；Stage 2.1 新增 `pyyaml==6.0.3`。Stage 2 已批准仅新增 `langgraph`，且**只能在 Stage 2.3 安装门禁通过后安装**；当前环境未安装 LangGraph，也未安装 `langchain-openai`、`langsmith`、langchain-core 等。被动带入的 `langchain-core`/`langsmith` 可接受，但禁止直接 import、启用 tracing、读取 API Key 或联网上报。其余新增依赖仍需负责人确认。
+依赖现状：阶段 0 基础依赖 8 个（`fastapi uvicorn pydantic pydantic-settings python-dotenv pytest httpx structlog`）；阶段 1 已固定 `ruff==0.17.4`、`bandit==1.9.4`、`radon==6.0.1`、`coverage==7.17.2`；Stage 2 新增 `pyyaml==6.0.3` 与 `langgraph==1.2.19`（Stage 2.3 安装门禁通过后安装）。`langgraph` 被动带入 `langgraph-checkpoint==4.3.1`、`langgraph-prebuilt==1.1.1`、`langgraph-sdk==0.4.14`、`langchain-core==1.8.0`、`langchain-protocol`、`langsmith==0.14.17`；被动依赖可存在，但禁止直接 import、启用 tracing、读取 API Key 或联网上报。未安装 `langchain-openai`、Redis、ARQ、PostgreSQL、MCP/A2A SDK、Streamlit。其余新增依赖仍需负责人确认。
 
 ## 常用命令
 
@@ -34,7 +35,7 @@ python --version   # 期望 3.12.x
 # Windows 下 pytest 需 UTF-8，否则读取含中文的 pytest.ini 会触发 GBK 解码错误
 export PYTHONUTF8=1                # PowerShell: $env:PYTHONUTF8 = "1"
 
-# 当前基线：单元 1028 passed, 4 skipped；全量 1039 passed, 8 skipped
+# 当前基线：单元 1308 passed, 5 skipped；全量 1339 passed, 9 skipped
 pytest tests/unit -q
 pytest -q
 
@@ -80,15 +81,16 @@ orchestration → graph → ReviewService → api / CLI / workers
 
 - `schemas/`：数据契约，不依赖任何业务模块。
 - `tools/`：确定性的静态分析/扫描/测试执行，提供证据（Stage 1 已实现）。
-- `agents/`：角色定义与 LLM 推理；**agents 不得 import graph**。当前仅有 `base.py`、`contracts.py`、`llm_support.py`、`__init__.py` 基础设施；Manager 与四个专业 Agent 在 Stage 2.2 实现。
-- `graph/`：LangGraph 工作流编排（Stage 2.3）。
-- `orchestration/`：跨节点任务生命周期、事件、重试、并发，与 graph 分离。
-- `ReportService`/`ReviewService` 是唯一评审入口；CLI 与 FastAPI 共用同一 `ReviewService`。阶段 1 为单进程同步执行；阶段 4 才引入 Redis + ARQ 并返回 202。
-- `services/`：`review_service.py`、`llm_client.py`、`llm_analyzer.py`、`redaction.py`、`evidence_validator.py`、`finding_aggregator.py`。
-- `reporting/`：`artifact_models.py`（阶段 1 四件产物模型）、`report_generator.py`、`markdown_renderer.py`。
+- `agents/`：角色定义与 LLM 推理；**agents 不得 import graph**。包含 `base.py`、`contracts.py`、`llm_support.py`、`manager.py`、`security.py`、`quality.py`、`performance.py`、`testing.py`、`reviewer.py`、`scoring.py`、`evidence.py`。
+- `graph/`：LangGraph 7 节点工作流（manager_plan → 4 workers → manager_aggregate → final_reviewer），无 Checkpointer。
+- `orchestration/`：跨节点任务生命周期、事件、重试、并发，与 graph 分离（Stage 3+）。
+- `ReportService`/`ReviewService` 是唯一评审入口；CLI 与 FastAPI 共用同一 `ReviewService`。Stage 2 仍为单进程同步执行；阶段 4 才引入 Redis + ARQ 并返回 202。
+- `services/`：`review_service.py`、`stage2_factory.py`、`llm_client.py`、`llm_analyzer.py`、`redaction.py`、`evidence_validator.py`、`finding_aggregator.py`。
+- `reporting/`：`artifact_models.py`（阶段 1 四件产物模型）、`report_generator.py`、`markdown_renderer.py`、`stage2_models.py`、`stage2_report_generator.py`（Stage 2 五件产物）。
 - `prompts/`：四个专业 Agent Prompt（security/quality/performance/testing），由 `llm_support.load_agent_prompt()` 加载。
+- `tools/stage2_fixture.py`：从 `tests/fixtures/stage2_sample_repo/` 构建确定性真实 Git 仓库（固定作者、时间、消息、文件模式），返回真实 commit SHA；不得伪造或硬编码 SHA。
 
-评审数据流（Stage 2 目标）：
+评审数据流（Stage 2 已实现）：
 
 ```
 提交请求 → 校验 URL → clone 并固定 40 位 commit SHA → Manager 生成任务计划
@@ -103,16 +105,16 @@ Stage 1 为线性单 Agent 流程，只生成四件产物（`metadata.json`、`s
 
 - **确定性工具产出证据，LLM 只做解读**；Finding 必须能追溯到代码位置或工具输出。
 - 被评审仓库是不可信内容：默认只在宿主机做静态分析；外部仓库测试执行状态必须为 `not_executed`，绝不能执行不可信脚本。仓库内容（源码/README/issue/PR 描述）同样视为不可信数据，防提示注入。
-- **阶段 1 可信 Fixture 受控例外**：仅 `tests/fixtures/trusted_repo/` 下由项目维护、经人工审查、固定版本或哈希的 Fixture 可在宿主机执行 Pytest/Coverage；不接受任意 GitHub URL + `--trusted` 提权，不自动安装依赖，不执行 `setup.py`/`build.py`/安装脚本；报告中必须区分可信 Fixture 与外部仓库数据。
+- **可信 Fixture 受控例外**：仅 `tests/fixtures/trusted_repo/` 与 `tests/fixtures/stage2_sample_repo/`（白名单名 `trusted_fixture_v1`、`stage2_sample_repo_v1`）下由项目维护、经人工审查、固定版本或哈希的 Fixture 可在宿主机执行 Pytest/Coverage；不接受任意 GitHub URL + `--trusted` 提权，不自动安装依赖，不执行 `setup.py`/`build.py`/安装脚本；报告中必须区分可信 Fixture 与外部仓库数据。
 - `.env`/密钥/token/主机路径不得写入日志、`input_data`、Prompt、结果或报告。
-- LLM Provider 必须可替换，经 `config/settings.py` 注入，禁止在 agent 内硬编码；Stage 2.1 只定义 `LLMClientProtocol`，不创建真实客户端。
+- LLM Provider 必须可替换，经 `config/settings.py` 注入，禁止在 agent 内硬编码；Stage 2 默认 `llm_client=None`，Fake LLM 仅用于测试。
 - 一致性顺序：先保存结果 → 再更新状态 → 最后发布事件。
 - LangGraph 并行 worker 只返回自己的状态键（如 `{"security_result": ...}`）；`completed_tasks`/`failed_tasks` 等列表字段必须使用 `Annotated[list, operator.add]` reducer，否则 `InvalidUpdateError`。
-- 单元测试不得联网、不得调用真实 LLM（用 Mock/Fake）。Stage 2.1 不执行真实 LLM 冒烟；Fake/Mock 仅用于单元测试；真实 LLM 冒烟需负责人单独批准、不纳入默认验收；Fake LLM 完整 E2E 在 Stage 2.6。
+- 单元测试不得联网、不得调用真实 LLM（用 Mock/Fake）。Stage 2 默认验收不执行真实 LLM 冒烟；真实调用通过 CLI `--real-llm` 显式启用，需负责人单独批准、不纳入默认验收。O-1 已解决：真实 usage 必须由 `config/llm_pricing.yaml` 的精确模型价格换算；缺少 usage 或价格条目时报告生成失败，不伪造 0 成本。
 - `BaseAgent` 只捕获 `Exception`（不捕获 `BaseException`），普通异常转换为合法的 failed `AgentResult`；Stage 2 不重试（`max_retries=0`），失败结果 `retryable=False`；不得把 Finding 标记为 `verified`。
 - `UsageSummary` 是内部统计，不等同于冻结的 `CostSummary`；只有真实返回的 token usage 才能累加，禁止伪造 0 token / 0 成本。
 - `ArtifactData` 是内存只读证据快照，支持稳定 JSON Pointer；Final Reviewer 必须校验内存对象，不得依赖尚未写盘的报告文件。
-- Prompt 投影不得包含完整 `AgentTask.input_data`；只投影允许文件、受限工具输出、规则子集，并执行脱敏、大小限制与提示注入防护。
+- Prompt 投影不得包含完整 `AgentTask.input_data`；只投影允许文件、受限工具输出、规则子集，并执行脱敏、大小限制与提示注入防护。投影按 `settings.llm_max_input_chars` 预算确定性省略末尾源码文件，省略数量写入 evidence warnings；基础上下文本身超限时直接失败，不发送截断 Prompt。
 - 评分权重、扣分、阈值、严重级别映射必须来自 `config/review_rules.yaml`；加载器拒绝非法权重，不做静默归一化。
 
 ## 数据契约
@@ -144,8 +146,8 @@ Stage 1 为线性单 Agent 流程，只生成四件产物（`metadata.json`、`s
 | `docs/task_contracts.md` | **数据契约权威来源**、规则 ID（TK/FD/ST/RS/RT/RP/JS） |
 | `docs/acceptance.md` | AC-0-01…33、AC-1-01…15、AC-2-…、TC、可执行验收命令与阶段阈值 |
 | `项目总框架与实施计划V2.0.md` | 总体规划基线（阶段 0–7） |
-| `Stage2.1-2.6分阶段实施Promp.md` | Stage 2.1–2.6 分阶段执行提示词与验收要求 |
-| `阶段2实施前架构审计与实施计划.md` | Stage 2 实施前审计、B-1/B-2 裁定、问题 A–D 与 D-3/4/5/7/11/12 |
+| `Prompt/Stage2.1-2.6分阶段实施Promp.md` | Stage 2.1–2.6 分阶段执行提示词与验收要求（本地，不提交） |
+| `Prompt/阶段2实施前架构审计与实施计划.md` | Stage 2 实施前审计、B-1/B-2 裁定、问题 A–D 与 D-3/4/5/7/11/12（本地，不提交） |
 | `Prompt/阶段0_Prompt.md` | 阶段 0 的可执行任务边界与交付步骤（本地，不提交） |
 | `Prompt/0.3阶段任务要求.md` | 阶段 0.3 Schema 重建与测试要求（本地，不提交） |
 | `Prompt/0.4阶段任务要求.md` | 阶段 0.4 文档冲突修复、合同统一与冻结要求（本地，不提交） |
@@ -156,6 +158,8 @@ Stage 1 为线性单 Agent 流程，只生成四件产物（`metadata.json`、`s
 | `reports/stage0/` | 阶段 0 验收报告（纳入版本控制） |
 | `reports/stage1/` | 阶段 1 各子阶段证据与验收报告（纳入版本控制） |
 | `reports/stage2_1_acceptance_report.md` | Stage 2.1 验收报告（纳入版本控制） |
+| `reports/stage2_2_acceptance_report.md` … `reports/stage2_6_final_acceptance_report.md` | Stage 2.2～2.6 验收报告（纳入版本控制） |
+| `reports/stage2_o1_resolution_report.md` | O-1 成本语义与真实 LLM 五件产物验证报告（2026-11-13，纳入版本控制） |
 | `reports/stage1-<timestamp>/` | 真实第三方仓库评审产物（本地，不提交） |
 
 ## 已解决的文档冲突与仍需注意的事项
@@ -202,10 +206,10 @@ Stage 2 已裁定：
 - 不得覆盖已存在的文件/配置；改动前先读契约与验收标准。
 - 不得伪造执行结果；验收报告必须如实写 PASS/FAIL/BLOCKED，失败就是失败。
 - 如终端无法 `conda activate`，说明原因并给替代方案，不要修改系统配置。
-- 提交前确认 `.env` 未被跟踪；不得提交密钥、token、主机路径或 `reports/stage1-<timestamp>/` 下的真实第三方产物。验收/评审记录（`reports/stage0/`、`reports/stage1/`、`reports/stage2_1_acceptance_report.md`）可以提交。
+- 提交前确认 `.env` 未被跟踪；不得提交密钥、token、主机路径或 `reports/stage1-<timestamp>/` 下的真实第三方产物。验收/评审记录（`reports/stage0/`、`reports/stage1/`、`reports/stage2_*_acceptance_report.md`）可以提交。
 - 提交使用**显式路径**；禁止 `git add -A` / `git add .`，避免把本地真实产物带入版本控制。
-- 阶段 0、1 已完成；Stage 2.1 已完成并等待负责人确认；Stage 2.2 尚未开始。未经确认不推进下一子阶段、不增加依赖、不删除/重写冻结规格文档。
-- 冻结文件：三个核心 Schema、五份核心文档、`report_generator.py`、`artifact_models.py`、`markdown_renderer.py`、`finding_aggregator.py`、`tests/fixtures/trusted_repo/`、`environment.lock.yml`。Stage 2.1 另要求不改三个 Schema 与上述报告/聚合文件。
-- Stage 2.3 安装 LangGraph 前必须通过提示词中的安装门禁并获得负责人确认；不得安装 `langchain-openai`、`langsmith` 或引入 tracing/API Key/网络上报。
-- Stage 2.1 裁定：本阶段不执行真实 LLM 冒烟；Fake/Mock 仅用于单元测试；真实 LLM 冒烟需负责人单独批准，不纳入默认验收；Fake LLM 完整 E2E 在 Stage 2.6。
+- 阶段 0、1 已完成；Stage 2.1～2.6 已完成，Stage 2.6 等待负责人验收；Stage 3 尚未开始。未经确认不得推进 Stage 3、不增加依赖、不删除/重写冻结规格文档。
+- 冻结文件：三个核心 Schema、五份核心文档、`report_generator.py`、`artifact_models.py`、`markdown_renderer.py`、`finding_aggregator.py`、`tests/fixtures/trusted_repo/`、`environment.lock.yml`。Stage 2 另要求不改三个 Schema 与上述报告/聚合文件。
+- Stage 2.3 安装门禁已通过，已安装 `langgraph==1.2.19`；Stage 3 不得新增依赖，不得安装 `langchain-openai`、`langsmith` 或引入 tracing/API Key/网络上报。
+- Stage 2 默认不执行真实 LLM 冒烟；Fake/Mock 仅用于测试；真实 LLM 冒烟需负责人单独批准、不纳入默认验收。O-1 已解决：真实调用必须配置 `config/llm_pricing.yaml` 的精确模型价格并返回真实 usage，否则报告生成失败；不得伪造 0 成本。CLI 提供 `--real-llm` 显式入口。
 - 阶段 1 的裁定记录现位于 `Prompt/Stage1实施前人工决策.md`（本地）；基线补充以 `docs/acceptance.md` §4.7～§4.11 与 `docs/architecture.md` §7.1.1/§8.1 为准。

@@ -30,6 +30,10 @@ from code_review.graph.workflow import GraphDependencies
 from code_review.schemas.task import utc_now
 from code_review.tools.base import AnalysisTool
 from code_review.tools.test_runner import TestRunner
+from config.llm_pricing import (
+    ModelPricing,
+    load_model_pricing,
+)
 from config.review_rules import ReviewRules, load_review_rules
 from config.settings import Settings
 
@@ -119,8 +123,14 @@ def build_stage2_dependencies(
     llm_client: LLMClientProtocol | None = None,
     rules: ReviewRules | None = None,
     clock: Callable[[], datetime] | None = None,
+    model_pricing: ModelPricing | None = None,
 ) -> Stage2Dependencies:
-    """装配 Stage 2 图依赖；不联网、不调用真实 LLM。"""
+    """装配 Stage 2 图依赖；不联网、不调用真实 LLM。
+
+    默认 ``llm_client=None``。调用方显式注入真实客户端时，必须同时能从
+    ``config/llm_pricing.yaml`` 解析出精确模型的价格，否则真实 token 无法
+    写入 ``CostSummary``。
+    """
 
     if not isinstance(context, Stage2FactoryContext):
         raise TypeError("context must be a Stage2FactoryContext")
@@ -182,12 +192,24 @@ def build_stage2_dependencies(
         clock=resolved_clock,
     )
 
+    resolved_pricing = model_pricing
+    if (
+        resolved_pricing is None
+        and llm_client is not None
+        and context.settings.llm_model
+    ):
+        resolved_pricing = load_model_pricing(
+            context.settings.llm_model,
+            context.settings.llm_pricing_path,
+        )
+
     graph = GraphDependencies(
         manager=manager,
         security_agent=security,
         quality_agent=quality,
         performance_agent=performance,
         testing_agent=testing,
+        model_pricing=resolved_pricing,
     )
     resolved_rules = (
         rules

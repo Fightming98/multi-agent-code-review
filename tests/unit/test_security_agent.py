@@ -247,6 +247,11 @@ class TestLLMFailure:
         assert execution.evidence.usage.llm_calls == 1
         assert execution.evidence.usage.reported_usage_calls == 0
         assert result.metadata["llm_succeeded"] is False
+        assert any(
+            "llm semantic supplement failed" in warning
+            and "RuntimeError" in warning
+            for warning in execution.evidence.warnings
+        )
 
     def test_invalid_llm_structure_is_partial(self, tmp_path: Path) -> None:
         tool = FakeAnalysisTool(
@@ -392,6 +397,43 @@ class TestLLMProposals:
         assert execution.evidence.usage.llm_calls == 1
         assert execution.evidence.usage.reported_usage_calls == 0
         assert execution.evidence.usage.total_tokens == 0
+
+
+class TestPromptBudget:
+    def test_budget_omissions_are_reported(self, tmp_path: Path) -> None:
+        package = tmp_path / "pkg"
+        package.mkdir()
+        names = tuple(f"pkg/file{index}.py" for index in range(8))
+        for name in names:
+            (tmp_path / name).write_text("x" * 6000, encoding="utf-8")
+        task = make_agent_task(
+            agent_name="SecurityAgent",
+            task_type="security_review",
+            task_id="task-security",
+        )
+        runtime = make_worker_runtime(
+            tmp_path,
+            allowed_files=names,
+            review_id=task.review_id,
+        )
+        tool = FakeAnalysisTool(result=make_tool_result())
+        client = FakeLLMClient(content=llm_payload())
+        agent = SecurityAgent(
+            settings=Settings(llm_max_input_chars=20_000),
+            bandit_tool=tool,
+            llm_client=client,
+        )
+        execution = run(
+            agent,
+            make_dispatch(task=task, runtime=runtime),
+        )
+
+        assert execution.result.status == "completed"
+        assert len(client.calls) == 1
+        assert any(
+            "prompt budget" in warning
+            for warning in execution.evidence.warnings
+        )
 
 
 class TestContractBoundary:

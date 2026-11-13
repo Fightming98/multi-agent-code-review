@@ -51,6 +51,7 @@ from code_review.schemas.report import (
 )
 from code_review.schemas.result import AgentResult, Finding, ToolEvidence
 from code_review.services.redaction import redact_sensitive_text
+from config.llm_pricing import ModelPricing
 from config.review_rules import ReviewRules
 
 __all__ = [
@@ -138,6 +139,7 @@ class FinalReviewRequest:
     agent_results: Mapping[str, AgentResult]
     artifact_data: ArtifactData
     usage_summary: UsageSummary
+    model_pricing: ModelPricing | None = None
     execution_summary: ExecutionSummary | None = None
     trace_id: str | None = None
     warnings: tuple[str, ...] = ()
@@ -181,6 +183,12 @@ class FinalReviewRequest:
         if not isinstance(self.usage_summary, UsageSummary):
             raise FinalReviewError(
                 "FinalReviewRequest.usage_summary must be a UsageSummary"
+            )
+        if self.model_pricing is not None and not isinstance(
+            self.model_pricing, ModelPricing
+        ):
+            raise FinalReviewError(
+                "FinalReviewRequest.model_pricing must be a ModelPricing or None"
             )
         if self.execution_summary is not None and not isinstance(
             self.execution_summary, ExecutionSummary
@@ -304,7 +312,10 @@ class FinalReviewer:
             else _derived_execution_summary(request.agent_results)
         )
         test_summary = _build_test_summary(request.artifact_data)
-        cost_summary = _build_cost_summary(request.usage_summary)
+        cost_summary = _build_cost_summary(
+            request.usage_summary,
+            request.model_pricing,
+        )
         summary = _build_summary(
             request=request,
             verdict=verdict.verdict,
@@ -763,16 +774,54 @@ def _build_test_summary(artifact_data: ArtifactData) -> TestSummary:
     )
 
 
-def _build_cost_summary(usage_summary: UsageSummary) -> CostSummary:
-    """O-1：Fake 路径零调用时零成本是真实值；真实调用未知成本不得冒充 0。"""
+def _build_cost_summary(
+    usage_summary: UsageSummary,
+    model_pricing: ModelPricing | None,
+) -> CostSummary:
+    """O-1：零调用写零成本；真实调用必须用真实 usage 与明确单价计价。
 
-    if usage_summary.llm_calls:
+    不得把缺失 usage、缺失价格或未知模型降级为 0。只要有一次调用没有
+    返回可拆分的 token usage，成本就无法确定，必须让整次审查显式失败。
+    """
+
+    if usage_summary.llm_calls == 0:
+        if usage_summary.input_tokens or usage_summary.output_tokens:
+            raise FinalReviewError(
+                "LLM usage reports tokens without calls; cost cannot be "
+                "determined"
+            )
+        return CostSummary()
+
+    if model_pricing is None:
         raise FinalReviewError(
-            "real LLM usage cannot be represented as zero cost in "
-            "CostSummary; cost semantics are deferred to the approved "
-            "real-LLM smoke"
+            "LLM pricing is required to compute the cost of real LLM usage"
         )
-    return CostSummary()
+    if usage_summary.reported_usage_calls != usage_summary.llm_calls:
+        raise FinalReviewError(
+            "LLM usage is incomplete: cost cannot be determined when any "
+            "call omits prompt/completion token usage"
+        )
+    if usage_summary.total_tokens == 0:
+        raise FinalReviewError(
+            "LLM usage reports zero tokens for real calls; cost cannot be "
+            "determined"
+        )
+
+    try:
+        estimated_cost = model_pricing.estimate(
+            usage_summary.input_tokens,
+            usage_summary.output_tokens,
+        )
+    except ValueError as exc:
+        raise FinalReviewError(
+            "LLM cost estimate failed due to invalid pricing or usage"
+        ) from exc
+    return CostSummary(
+        total_input_tokens=usage_summary.input_tokens,
+        total_output_tokens=usage_summary.output_tokens,
+        estimated_cost=float(estimated_cost),
+        currency=model_pricing.currency,
+    )
 
 
 def _build_summary(

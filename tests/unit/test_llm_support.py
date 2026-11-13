@@ -18,6 +18,7 @@ from code_review.agents.llm_support import (
     UsageAccumulator,
     build_prompt_projection,
     build_user_prompt,
+    describe_llm_error,
     load_agent_prompt,
     parse_json_object,
     request_json,
@@ -316,6 +317,50 @@ class TestBuildProjection:
         )
         assert projection.rules == {}
 
+    def test_prompt_budget_omits_trailing_sources(
+        self, tmp_path: Path
+    ) -> None:
+        task = make_agent_task()
+        allowed = ("pkg/a.py", "pkg/b.py", "pkg/c.py")
+        runtime = make_worker_runtime(
+            tmp_path,
+            allowed_files=allowed,
+            review_id=task.review_id,
+        )
+        projection = build_prompt_projection(
+            make_dispatch(task=task, runtime=runtime),
+            source_files={
+                "pkg/a.py": "a" * 800,
+                "pkg/b.py": "b" * 800,
+                "pkg/c.py": "c" * 800,
+            },
+            include_rules=False,
+            max_prompt_chars=2000,
+        )
+
+        assert len(projection.source_files) < len(allowed)
+        assert any(
+            "prompt budget" in warning for warning in projection.warnings
+        )
+        assert len(build_user_prompt(projection, max_chars=2000)) <= 2000
+
+    def test_prompt_budget_too_small_raises(
+        self, tmp_path: Path
+    ) -> None:
+        task = make_agent_task()
+        runtime = make_worker_runtime(
+            tmp_path,
+            allowed_files=("pkg/a.py",),
+            review_id=task.review_id,
+        )
+        with pytest.raises(LLMProjectionError, match="exceeds"):
+            build_prompt_projection(
+                make_dispatch(task=task, runtime=runtime),
+                source_files={"pkg/a.py": "x" * 800},
+                include_rules=False,
+                max_prompt_chars=100,
+            )
+
     def test_invalid_limits_rejected(self, tmp_path: Path) -> None:
         dispatch = make_dispatch(workspace_path=tmp_path)
         with pytest.raises(LLMProjectionError):
@@ -324,6 +369,8 @@ class TestBuildProjection:
             build_prompt_projection(dispatch, max_source_chars=0)
         with pytest.raises(LLMProjectionError):
             build_prompt_projection(dispatch, max_tool_output_chars=0)
+        with pytest.raises(LLMProjectionError):
+            build_prompt_projection(dispatch, max_prompt_chars=0)
 
 
 class TestUserPrompt:
@@ -339,6 +386,30 @@ class TestUserPrompt:
     def test_invalid_projection_rejected(self) -> None:
         with pytest.raises(LLMProjectionError):
             build_user_prompt("not-a-projection")  # type: ignore[arg-type]
+
+
+class TestDescribeLLMError:
+    def test_project_error_detail_is_reported(self) -> None:
+        summary = describe_llm_error(
+            LLMProjectionError("user prompt exceeds 100 characters")
+        )
+        assert summary == (
+            "LLMProjectionError: user prompt exceeds 100 characters"
+        )
+
+    def test_unknown_exception_only_reports_type(self) -> None:
+        summary = describe_llm_error(
+            RuntimeError("network disabled for sk-abcdefghijklmnopqrstuvwx")
+        )
+        assert summary == "RuntimeError"
+        assert "sk-" not in summary
+
+    def test_safe_exception_message_is_redacted(self) -> None:
+        summary = describe_llm_error(
+            LLMResponseError("provider echoed sk-abcdefghijklmnopqrstuvwx")
+        )
+        assert "[REDACTED]" in summary
+        assert "sk-" not in summary
 
 
 class TestJsonParsing:

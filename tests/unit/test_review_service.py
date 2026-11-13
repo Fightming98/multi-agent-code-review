@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -46,6 +47,7 @@ from code_review.tools.repository_manager import (
     RepositorySnapshot,
 )
 from code_review.tools.test_runner import TestExecutionStatus as ExecutionStatus
+from config.llm_pricing import ModelPricing
 from config.settings import Settings
 from tests import stage2_helpers as s2
 from tests.stage1_helpers import (
@@ -834,7 +836,7 @@ def test_stage2_report_generation_failure_is_mapped_to_reporting(
     assert harness.manager.cleanup_calls == [harness.snapshot]
 
 
-def test_stage2_real_llm_usage_fails_instead_of_fake_zero_cost(
+def test_stage2_real_llm_usage_is_priced_and_writes_five_artifacts(
     tmp_path: Path,
 ) -> None:
     usage = UsageSummary(
@@ -843,10 +845,19 @@ def test_stage2_real_llm_usage_fails_instead_of_fake_zero_cost(
         input_tokens=100,
         output_tokens=20,
     )
+    pricing = ModelPricing(
+        model="fake-model",
+        input_per_million_tokens=Decimal("0.25"),
+        output_per_million_tokens=Decimal("1.00"),
+        currency="USD",
+        source_url="https://example.invalid/pricing",
+        retrieved_at="2026-11-13",
+    )
     graph = s2.make_graph_dependencies(
         factories={
             "security": s2.make_dimension_factory("security", usage=usage)
-        }
+        },
+        model_pricing=pricing,
     )
     dependencies = Stage2Dependencies(
         manager=graph.manager,
@@ -857,13 +868,22 @@ def test_stage2_real_llm_usage_fails_instead_of_fake_zero_cost(
         tmp_path, stage2_factory=lambda context: dependencies
     )
 
-    with pytest.raises(ReviewServiceError) as caught:
-        harness.service.review(ReviewRequest(URL))
+    outcome = harness.service.review(ReviewRequest(URL))
 
-    # Final Reviewer 在成本语义未解决时拒绝伪造零成本，整次审查显式失败。
-    assert caught.value.stage == "graph"
-    assert caught.value.error_type == "graph_execution_failed"
-    assert not (tmp_path / "reports").exists()
+    assert outcome.review_stage == "stage_2"
+    assert outcome.llm_status == "completed"
+    assert sorted(
+        path.name for path in outcome.report_dir.iterdir()
+    ) == STAGE2_ARTIFACT_NAMES
+    payload = json.loads(
+        outcome.report_json_path.read_text(encoding="utf-8")
+    )
+    assert payload["cost_summary"] == {
+        "total_input_tokens": 100,
+        "total_output_tokens": 20,
+        "estimated_cost": 0.000045,
+        "currency": "USD",
+    }
     assert harness.manager.cleanup_calls == [harness.snapshot]
 
 

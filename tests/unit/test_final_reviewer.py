@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import builtins
 import inspect
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ from code_review.agents.reviewer import (
 )
 from code_review.schemas.report import ExecutionSummary
 from code_review.schemas.result import ToolEvidence
+from config.llm_pricing import ModelPricing
 from tests.stage2_helpers import (
     COMMIT_SHA,
     REVIEW_ID,
@@ -244,6 +246,17 @@ def critical_finding(dimension: str):
             ],
         )
     raise ValueError(dimension)
+
+
+def make_test_pricing() -> ModelPricing:
+    return ModelPricing(
+        model="test-model",
+        input_per_million_tokens=Decimal("0.25"),
+        output_per_million_tokens=Decimal("1.00"),
+        currency="USD",
+        source_url="https://example.invalid/pricing",
+        retrieved_at="2026-11-13",
+    )
 
 
 def run_review(workspace: Path, **overrides):
@@ -807,6 +820,79 @@ def test_external_testing_not_executed_scores_null(
     assert report.test_summary.coverage is None
     assert report.report_status == "partial"
     assert report.overall_verdict == "COMMENT"
+
+
+def test_real_llm_usage_is_priced_into_cost_summary(tmp_path: Path) -> None:
+    workspace = make_workspace(tmp_path)
+    usage = UsageSummary(
+        llm_calls=2,
+        reported_usage_calls=2,
+        input_tokens=1_234,
+        output_tokens=567,
+    )
+
+    outcome = run_review(
+        workspace,
+        usage=usage,
+        model_pricing=make_test_pricing(),
+    )
+
+    cost = outcome.report.cost_summary
+    expected = (
+        Decimal(1_234) * Decimal("0.25")
+        + Decimal(567) * Decimal("1.00")
+    ) / Decimal(1_000_000)
+    assert cost.total_input_tokens == 1_234
+    assert cost.total_output_tokens == 567
+    assert cost.estimated_cost == pytest.approx(float(expected))
+    assert cost.estimated_cost > 0
+    assert cost.currency == "USD"
+
+
+def test_real_llm_usage_without_pricing_is_rejected(tmp_path: Path) -> None:
+    workspace = make_workspace(tmp_path)
+
+    with pytest.raises(FinalReviewError, match="pricing is required"):
+        run_review(
+            workspace,
+            usage=UsageSummary(
+                llm_calls=1,
+                reported_usage_calls=1,
+                input_tokens=100,
+                output_tokens=20,
+            ),
+        )
+
+
+def test_incomplete_llm_usage_is_rejected(tmp_path: Path) -> None:
+    workspace = make_workspace(tmp_path)
+
+    with pytest.raises(FinalReviewError, match="usage is incomplete"):
+        run_review(
+            workspace,
+            usage=UsageSummary(
+                llm_calls=2,
+                reported_usage_calls=1,
+                input_tokens=100,
+                output_tokens=20,
+            ),
+            model_pricing=make_test_pricing(),
+        )
+
+
+def test_tokens_without_llm_calls_are_rejected(tmp_path: Path) -> None:
+    workspace = make_workspace(tmp_path)
+
+    with pytest.raises(FinalReviewError, match="without calls"):
+        run_review(
+            workspace,
+            usage=UsageSummary(
+                llm_calls=0,
+                reported_usage_calls=0,
+                input_tokens=10,
+                output_tokens=0,
+            ),
+        )
 
 
 def test_final_reviewer_failure_is_not_disguised(tmp_path: Path) -> None:

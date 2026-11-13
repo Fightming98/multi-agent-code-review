@@ -11,14 +11,22 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
+from functools import partial
 
+from code_review.services.llm_client import OpenAICompatibleClient
 from code_review.services.review_service import (
     ReviewOutcome,
     ReviewRequest,
     ReviewService,
     ReviewServiceError,
 )
+from code_review.services.stage2_factory import build_stage2_dependencies
+from config.llm_pricing import LLMPricingError, load_model_pricing
 from config.settings import Settings
+
+
+class CLIConfigurationError(RuntimeError):
+    """CLI 显式启用真实 LLM 时配置不完整；消息不得包含密钥。"""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,6 +67,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="以 JSON 输出执行摘要",
     )
+    review_parser.add_argument(
+        "--real-llm",
+        action="store_true",
+        help=(
+            "显式启用真实 LLM（需要 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL "
+            "及 config/llm_pricing.yaml 中的精确模型价格）；默认不调用 LLM"
+        ),
+    )
     return parser
 
 
@@ -69,8 +85,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("a command is required")
 
     settings = Settings()
-    service = ReviewService(settings)
+    client: OpenAICompatibleClient | None = None
+    service: ReviewService | None = None
     try:
+        if args.real_llm:
+            try:
+                client = _build_real_llm_client(settings)
+            except CLIConfigurationError as exc:
+                print(f"error[llm]: {exc}", file=sys.stderr)
+                return 1
+            service = ReviewService(
+                settings,
+                stage2_factory=partial(
+                    build_stage2_dependencies,
+                    llm_client=client,
+                ),
+            )
+        else:
+            service = ReviewService(settings)
         outcome = service.review(
             ReviewRequest(
                 repository_url=args.repository_url,
@@ -86,13 +118,44 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"error: review failed unexpectedly ({type(exc).__name__})", file=sys.stderr)
         return 1
     finally:
-        service.close()
+        if service is not None:
+            service.close()
+        if client is not None:
+            client.close()
 
     if args.json:
         print(json.dumps(_outcome_payload(outcome), ensure_ascii=False, indent=2))
     else:
         _print_human(outcome)
     return 0
+
+
+def _build_real_llm_client(settings: Settings) -> OpenAICompatibleClient:
+    if settings.llm_provider != "openai_compatible":
+        raise CLIConfigurationError(
+            "real LLM requires LLM_PROVIDER=openai_compatible"
+        )
+    if (
+        not settings.llm_base_url
+        or not settings.llm_api_key
+        or not settings.llm_model
+    ):
+        raise CLIConfigurationError(
+            "real LLM requires LLM_BASE_URL, LLM_API_KEY and LLM_MODEL"
+        )
+    try:
+        load_model_pricing(
+            settings.llm_model,
+            settings.llm_pricing_path,
+        )
+    except LLMPricingError as exc:
+        raise CLIConfigurationError(str(exc)) from exc
+    return OpenAICompatibleClient(
+        base_url=settings.llm_base_url,
+        api_key=settings.llm_api_key,
+        model=settings.llm_model,
+        timeout_seconds=settings.llm_timeout_seconds,
+    )
 
 
 def _outcome_payload(outcome: ReviewOutcome) -> dict[str, object]:
